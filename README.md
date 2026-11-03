@@ -70,3 +70,7 @@ When running on the free keyless models, the generator first asks the model for 
 Run `cloudflared tunnel --url http://localhost:3000`. Visitors through the tunnel must sign in with the password in `data\access-password.txt` (or `STUDIO_ACCESS_PASSWORD`; 8+ characters; with none set, remote access is refused). You, on localhost, are never asked. Visitors get their own in-memory AI connection: your saved and environment keys are never used for them, and keys they enter are never written to disk. They can add their own key for stronger models. Only the owner can toggle research or delete knowledge.
 
 Each project card has a **Download** button (a .zip with index.html, game.js, game.css and a README; Godot projects include web/ and godot/). Owner and signed-in friends can use it.
+
+## Hosted build
+
+Run `powershell -File make-hosted.ps1` to create `Desktop\Traumatic Studios Hosted`: code and a Node runtime only, with `STUDIO_HOSTED=1` (no owner, password for everyone, owner keys and settings disabled, no background research, knowledge read-only). Set the password in its `data\access-password.txt` and run `START HOSTED.bat`.

@@ -5,7 +5,7 @@ const { runStudio } = require("./studio");
 const { runDemoStudio } = require("./demo-studio");
 const { runLocalStudio, runLocalTask } = require("./local-studio");
 const { clearApiKey, enableKeylessDefault, getPublicStatus, isConfigured, listModels, PROVIDERS, runAsVisitor, setApiKey } = require("./settings");
-const { authorize } = require("./access");
+const { authorize, hosted } = require("./access");
 const { readLearnings } = require("./memory-store");
 const { learnFromLinks, listKnowledge, knowledgeReport, removeKnowledge, installSeed } = require("./knowledge");
 const research = require("./research");
@@ -396,7 +396,13 @@ if (require.main === module) {
   enableKeylessDefault();
   const seeded = installSeed();
   if (seeded) console.log(`Installed ${seeded} starter lessons.`);
-  research.start();
+  if (hosted()) {
+    // A hosted copy never holds or uses the owner's keys, and it does not run the background research division.
+    for (const name of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"]) delete process.env[name];
+    console.log("HOSTED MODE: password required for everyone; owner settings and keys are disabled.");
+  } else {
+    research.start();
+  }
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`Traumatic Studios is running at http://localhost:${PORT}`);
   });

@@ -90,3 +90,30 @@ test("repeated wrong passwords are locked out", async (context) => {
   const right = await request(port, { method: "POST", path: "/api/login", headers, body: { password: "another good password" } });
   assert.equal(right.status, 429);
 });
+
+test("hosted mode has no owner: even direct localhost must sign in and cannot touch owner-only routes", async (context) => {
+  const saved = { hosted: process.env.STUDIO_HOSTED, pass: process.env.STUDIO_ACCESS_PASSWORD, key: process.env.OPENAI_API_KEY };
+  process.env.STUDIO_HOSTED = "1";
+  process.env.STUDIO_ACCESS_PASSWORD = "hosted password 123";
+  process.env.OPENAI_API_KEY = "owner-secret-key-0000000000";
+  context.after(async () => {
+    for (const [name, value] of [["STUDIO_HOSTED", saved.hosted], ["STUDIO_ACCESS_PASSWORD", saved.pass], ["OPENAI_API_KEY", saved.key]]) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+    if (server.listening) await new Promise((resolve) => server.close(resolve));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  require("./access").resetLimits();
+  const { port } = server.address();
+
+  assert.equal((await request(port, { remote: false })).status, 401);
+  assert.equal((await request(port, { remote: false, method: "POST", path: "/api/settings/key", body: { apiKey: "x".repeat(24) } })).status, 401);
+  const login = await request(port, { remote: false, method: "POST", path: "/api/login", body: { password: "hosted password 123" } });
+  assert.equal(login.status, 200);
+  const auth = { cookie: login.headers["set-cookie"][0].split(";")[0] };
+  const status = (await request(port, { remote: false, headers: auth })).json();
+  assert.equal(status.visitor, true);
+  assert.equal(status.keySource, "none");
+  assert.equal((await request(port, { remote: false, method: "POST", path: "/api/knowledge", headers: auth, body: { urls: ["https://example.com"] } })).status, 403);
+  assert.equal((await request(port, { remote: false, method: "POST", path: "/api/research", headers: auth, body: { enabled: true } })).status, 403);
+});

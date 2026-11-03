@@ -27,7 +27,11 @@ function getPassword() {
 const PROXY_HEADERS = ["cf-connecting-ip", "cf-ray", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded", "x-real-ip"];
 
 // Only a direct local connection counts as the owner. A tunnel connects from localhost too, so proxy headers and a non-local Host disqualify it.
+// Hosted builds have no owner at all: even a local connection must sign in, and nothing owner-only is reachable.
+const hosted = () => process.env.STUDIO_HOSTED === "1";
+
 function isOwner(request) {
+  if (hosted()) return false;
   const address = request.socket.remoteAddress || "";
   const loopback = address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
   const host = String(request.headers.host || "");
@@ -160,7 +164,7 @@ async function authorize(request, response) {
     return null;
   }
   // These change shared state on the owner's machine, so only the owner may use them.
-  const ownerOnly = (request.method === "POST" && pathname === "/api/research") || (request.method === "DELETE" && pathname.startsWith("/api/knowledge"));
+  const ownerOnly = (request.method === "POST" && pathname === "/api/research") || (request.method === "DELETE" && pathname.startsWith("/api/knowledge")) || (hosted() && request.method === "POST" && pathname === "/api/knowledge");
   if (ownerOnly) {
     json(response, 403, { error: "Only the studio owner can do that." });
     return null;
@@ -168,4 +172,6 @@ async function authorize(request, response) {
   return { owner: false, store: found.entry.store };
 }
 
-module.exports = { authorize, isOwner, getPassword, MIN_PASSWORD };
+const resetLimits = () => failures.clear();
+
+module.exports = { authorize, hosted, isOwner, resetLimits, getPassword, MIN_PASSWORD };
