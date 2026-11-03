@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#070a0e">
     <title>Traumatic Studios — Game Studio</title>
     <link rel="stylesheet" href="/styles.css">
+    <script src="/curl-import.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -20,6 +21,11 @@
           <span class="status-dot"></span>
           <span><strong>Studio floor</strong><small id="connection-status">Checking model connection…</small></span>
         </div>
+
+        <button id="settings-button" class="settings-card" type="button" aria-controls="key-section" aria-expanded="false">
+          <span class="settings-icon" aria-hidden="true">⚙</span>
+          <span><strong>AI connection</strong><small id="settings-summary">Checking…</small></span>
+        </button>
 
         <div class="sidebar-label team-label">THE TEAM <span>04</span></div>
         <ul class="team-list">
@@ -44,21 +50,34 @@
         <form id="brief-form" class="brief-panel">
           <div class="panel-heading"><div><span class="step-number">01</span><h2>What are we making?</h2></div><span class="hint">A little detail goes a long way</span></div>
           <label for="brief">YOUR GAME IDEA</label>
-          <textarea id="brief" name="brief" minlength="10" maxlength="2000" required placeholder="A cozy exploration game about a tiny lighthouse keeper who guides lost sea creatures home…"></textarea>
-          <div class="form-footer"><span id="char-count">0 / 2,000</span><button id="start-button" type="submit"><span>Bring the team together</span><span aria-hidden="true">↗</span></button></div>
+          <textarea id="brief" name="brief" minlength="10" maxlength="5000" required placeholder="A cozy exploration game about a tiny lighthouse keeper who guides lost sea creatures home…"></textarea>
+          <div class="form-footer"><span id="char-count">0 / 5,000</span><button id="start-button" type="submit"><span>Bring the team together</span><span aria-hidden="true">↗</span></button></div>
         </form>
 
         <section id="key-section" class="memory-section key-section" aria-live="polite">
-          <div class="panel-heading memory-heading"><div><span class="step-number">🔑</span><h2>Bring your own API key</h2></div><span id="key-badge" class="hint">LOCAL AGENTS ACTIVE</span></div>
-          <p class="memory-caption">Local agents run the whole studio with no key. Add an OpenAI API key to switch the team to live AI. Your key stays on this computer and is only sent to OpenAI.</p>
+          <div class="panel-heading memory-heading"><div><span class="step-number">🔑</span><h2>Bring your own API key</h2></div><span><span id="key-badge" class="hint">LOCAL AGENTS ACTIVE</span> <button id="key-close" class="key-close" type="button" hidden>Close ✕</button></span></div>
+          <p class="memory-caption">Local agents run the whole studio with no key. Add a key, or pick a free or keyless provider (Qwen, OpenRouter, Ollama, Pollinations…), to switch the team to live AI. Your key stays on this computer and is only sent to the provider you choose.</p>
           <form id="key-form" class="key-form" autocomplete="off">
-            <label for="api-key">API KEY</label>
+            <details class="curl-import">
+              <summary>Have a cURL quickstart? Paste it to fill this in</summary>
+              <textarea id="curl-text" rows="4" spellcheck="false" placeholder="curl &quot;https://…&quot; -H &quot;x-goog-api-key: …&quot; …"></textarea>
+              <button id="curl-fill" type="button">Fill from cURL</button>
+            </details>
+            <label for="api-provider">PROVIDER</label>
+            <select id="api-provider" name="provider"></select>
+            <div id="base-url-row" hidden>
+              <label for="api-base-url">PROVIDER ADDRESS (OpenAI-compatible, ending in /v1)</label>
+              <input id="api-base-url" name="baseUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://…/v1">
+            </div>
+            <label for="api-key" id="api-key-label">API KEY</label>
             <input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" required>
-            <label for="api-model">MODEL (OPTIONAL)</label>
-            <input id="api-model" name="model" type="text" autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini">
+            <label for="api-model">MODEL (pick from the list or type one)</label>
+            <input id="api-model" name="model" type="text" list="api-model-list" autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini">
+            <datalist id="api-model-list"></datalist>
             <label class="key-remember"><input id="api-remember" type="checkbox"> Remember on this computer (saved unencrypted in the app’s data folder)</label>
             <div class="key-actions">
               <button id="key-save" type="submit">Verify &amp; use key</button>
+              <button id="models-load" type="button">Load models</button>
               <button id="key-clear" type="button" hidden>Remove key</button>
             </div>
           </form>
@@ -73,6 +92,31 @@
           <p id="memory-error" class="memory-error" role="alert" hidden></p>
         </section>
 
+        <section class="memory-section learn-section" aria-live="polite">
+          <div class="panel-heading memory-heading"><div><span class="step-number">📚</span><h2>Teach the studio</h2></div><span id="learn-count" class="hint">NOTHING STUDIED YET</span></div>
+          <p class="memory-caption">Paste links to tutorials, documentation, articles or course pages. The team reads the text, turns it into lessons, and applies them to every game it builds from now on. Videos can’t be read, but a course page’s syllabus and any written guide can.</p>
+          <div class="curriculum research-card">
+            <h3>Research division <span id="research-state" class="hint"></span></h3>
+            <p id="research-last" class="memory-caption">Starting up…</p>
+            <div class="key-actions"><button id="research-toggle" type="button">Pause research</button></div>
+          </div>
+          <div class="curriculum">
+            <h3>Studio curriculum (free sources)</h3>
+            <p class="memory-caption">Built-in reading list: design theory, genre playbooks, programming patterns, algorithms, browser game craft and the Godot docs. Pick tracks and the team studies each page, then sits a closed-book exam on it and gets re-taught anything it misses. It remembers pages it has already finished, so you can stop and resume.</p>
+            <div id="learn-tracks" class="learn-tracks"></div>
+            <label class="key-remember"><input id="learn-drill" type="checkbox" checked> Drill the team with a closed-book exam after each page (slower, but it makes the lessons stick)</label>
+            <div class="key-actions"><button id="curriculum-button" type="button">Start the curriculum</button></div>
+          </div>
+          <form id="learn-form" class="key-form" autocomplete="off">
+            <label for="learn-links">LINKS (one per line, up to 10)</label>
+            <textarea id="learn-links" rows="3" spellcheck="false" required placeholder="https://…"></textarea>
+            <label class="key-remember"><input id="learn-follow" type="checkbox" checked> Also read the most useful pages these links lead to (up to 12 each)</label>
+            <div class="key-actions"><button id="learn-button" type="submit">Study these links</button></div>
+          </form>
+          <ol id="learn-log" class="live-log learn-log" hidden></ol>
+          <details class="learn-details"><summary>What the studio has learned</summary><ul id="learn-list" class="learn-list"></ul></details>
+        </section>
+
         <section id="work-section" class="work-section" hidden aria-live="polite">
           <div class="panel-heading work-heading"><div><span class="step-number">02</span><h2>Studio floor</h2></div><span id="run-status" class="run-status">READY</span></div>
           <p id="progress-summary" class="progress-summary" role="status">The team’s current step will show here.</p>
@@ -85,6 +129,10 @@
             <li data-phase="build-review"><span>06</span><strong>Build review</strong></li>
             <li data-phase="learning"><span>07</span><strong>Save learnings</strong></li>
           </ol>
+          <div id="live-panel" class="live-panel" aria-label="Live build log">
+            <div class="live-now"><span class="live-pulse" aria-hidden="true"></span><span id="live-now-text">Waiting to start…</span><b id="live-now-time">00:00</b></div>
+            <ol id="live-log" class="live-log" aria-live="polite"></ol>
+          </div>
           <section class="team-chat" aria-label="Bot team conversation" aria-live="polite">
             <div class="team-chat-heading"><h3>TEAM CHAT</h3><span>SHARED DECISIONS &amp; HANDOFFS</span></div>
             <p id="team-chat-empty" class="team-chat-empty">Team messages will appear here when bots share decisions, proposals, and reviews.</p>

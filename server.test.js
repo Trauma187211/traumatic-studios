@@ -25,17 +25,20 @@ test("reports demo availability and rejects malformed or out-of-range sprint bri
 
   const statusResponse = await fetch(`${baseUrl}/api/status`);
   assert.equal(statusResponse.status, 200);
-  assert.deepEqual(await statusResponse.json(), {
+  const { providers, ...status } = await statusResponse.json();
+  assert.ok(providers.openai && providers.custom);
+  assert.deepEqual(status, {
     configured: false,
     model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     keySource: "none",
+    keyless: false,
     demoAvailable: true,
     localAvailable: true,
   });
 
   const badBriefs = [
     { brief: "short" },
-    { brief: "x".repeat(2_001) },
+    { brief: "x".repeat(5_001) },
     { brief: 42 },
     null,
   ];
@@ -46,7 +49,7 @@ test("reports demo availability and rejects malformed or out-of-range sprint bri
       body: JSON.stringify(brief),
     });
     assert.equal(response.status, 400);
-    assert.match((await response.json()).error, /brief must be between 10 and 2,000 characters/);
+    assert.match((await response.json()).error, /brief must be between 10 and 5,000 characters/);
   }
 
   const malformedResponse = await fetch(`${baseUrl}/api/demo-run`, {

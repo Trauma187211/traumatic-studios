@@ -42,7 +42,7 @@ test("bring-your-own key is stored per session and can be removed", async (conte
 
   const key = "sk-test-0123456789abcdefghij";
   const status = await setApiKey({ apiKey: key, model: "gpt-4o" }, { verify: false });
-  assert.deepEqual(status, { configured: true, model: "gpt-4o", keySource: "session" });
+  assert.deepEqual(status, { configured: true, model: "gpt-4o", keySource: "session", keyless: false });
   assert.equal(getApiKey(), key);
   await assert.rejects(() => setApiKey({ apiKey: "bad key" }, { verify: false }), /API key/);
   await assert.rejects(() => fs.access(process.env.STUDIO_SETTINGS_PATH));

@@ -236,7 +236,7 @@ async function runLocalStudio(brief, emit, { projectsDir, memoryFile = getMemory
 
   emit({ type: "studio-started", model: "local agents", memoryCount: learnings.length });
   const kickoff = await step("producer", "Producer", "kickoff",
-    `Concept: "${plan.title}" — a one-screen ${plan.mode === "collect" ? "catching" : "survival"} game built from your brief: "${brief.slice(0, 160)}". First milestone: one playable level with a win, a loss and a restart.${learnings.length ? ` Applying ${learnings.length} saved studio lesson(s).` : ""}`);
+    `Concept: "${plan.title}" — NOTE: no API key is set, so the local agents can only build a one-screen ${plan.mode === "collect" ? "catching" : "survival"} placeholder. Add an API key to build the game you actually described with the full AI pipeline (design doc, modular build, auto-testing). Brief: "${brief.slice(0, 160)}". First milestone: one playable level with a win, a loss and a restart.${learnings.length ? ` Applying ${learnings.length} saved studio lesson(s).` : ""}`);
   say("Producer", "Whole team", "Kickoff", kickoff);
 
   const [design, engineering] = await Promise.all([

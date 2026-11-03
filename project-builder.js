@@ -2,22 +2,20 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const vm = require("node:vm");
 const { randomUUID } = require("node:crypto");
-const { getApiKey, getModel } = require("./settings");
+const { getModel, isConfigured } = require("./settings");
+const { llmFetch } = require("./llm");
 
+const { listFiles, zipChunks } = require("./project-zip");
 const PROJECTS_DIR = path.join(__dirname, "projects");
 const MAX_FILE_BYTES = 24_000;
-const MAX_PROJECT_BYTES = 48_000;
+const MAX_GAME_JS_BYTES = 240_000;
+const MAX_PROJECT_BYTES = 300_000;
 const REQUIRED_FILES = ["index.html", "game.js", "game.css"];
 const TASK_OWNERS = new Set(["Game designer", "Gameplay engineer", "QA tester", "Producer"]);
 const runningProjects = new Set();
 
 async function askForProject(brief, handoff) {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getApiKey()}`,
-      "Content-Type": "application/json",
-    },
+  const response = await llmFetch({
     body: JSON.stringify({
       model: getModel(),
       temperature: 0.4,
@@ -62,12 +60,13 @@ function validateProject(project) {
   };
   for (const name of REQUIRED_FILES) {
     const content = files[name];
-    if (typeof content !== "string" || content.trim().length === 0 || Buffer.byteLength(content, "utf8") > MAX_FILE_BYTES) {
-      throw new Error(`Generated ${name} is missing or exceeds the 24 KB per-file limit.`);
+    const limit = name === "game.js" ? MAX_GAME_JS_BYTES : MAX_FILE_BYTES;
+    if (typeof content !== "string" || content.trim().length === 0 || Buffer.byteLength(content, "utf8") > limit) {
+      throw new Error(`Generated ${name} is missing or exceeds the ${limit / 1000} KB per-file limit.`);
     }
   }
   if (REQUIRED_FILES.reduce((total, name) => total + Buffer.byteLength(files[name], "utf8"), 0) > MAX_PROJECT_BYTES) {
-    throw new Error("Generated project exceeds the 48 KB total size limit.");
+    throw new Error("Generated project exceeds the 300 KB total size limit.");
   }
 
   const scripts = [...files["index.html"].matchAll(/<script\b[^>]*>/gi)];
@@ -338,7 +337,7 @@ async function executeAssignedTask(projectId, taskId, projectsDir = PROJECTS_DIR
   if (!/^game-\d+-[a-f0-9]{8}$/.test(projectId) || !/^task-[1-5]$/.test(taskId)) {
     throw new Error("Invalid project or task identifier.");
   }
-  if (!getApiKey()) {
+  if (!isConfigured()) {
     throw new Error("Add an API key before asking a bot to work on a task.");
   }
   const lockKey = `${projectsDir}:${projectId}`;
@@ -353,25 +352,23 @@ async function executeAssignedTask(projectId, taskId, projectsDir = PROJECTS_DIR
   if (!task) throw new Error("Task not found.");
   if (task.status !== "todo") throw new Error("Only a task marked todo can be assigned to a bot.");
 
+  const { runPatchTask } = require("./task-patcher");
+  if (metadata.mode === "godot") return await runPatchTask({ projectId, task, metadata, projectsDir, kind: "godot" });
   const originalFiles = await readProjectSources(projectId, projectsDir);
+  if (originalFiles["game.js"].length > 20_000) return await runPatchTask({ projectId, task, metadata, projectsDir, kind: "web" });
   await updateTask(projectId, taskId, "in_progress", projectsDir);
 
   try {
     const role = task.owner;
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${getApiKey()}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await llmFetch({
+    body: JSON.stringify({
         model: getModel(),
         temperature: 0.3,
         response_format: { type: "json_object" },
         messages: [
           {
             role: "system",
-            content: `You are the ${role} at Traumatic Studios, implementing one assigned task in an existing small browser game. Return only JSON with string fields summary, gameJs, gameCss. Preserve the existing game and implement only the requested task. Do not change HTML or add files. Do not add external URLs, network requests, imports, storage, forms, WebSocket, eval or dynamic code execution. Keep each output file below 24 KB and the combined three project files below 48 KB.`,
+            content: `You are the ${role} at Traumatic Studios, implementing one assigned task in an existing small browser game. Return only JSON with string fields summary, gameJs, gameCss. Preserve the existing game and implement only the requested task. Do not change HTML or add files. Do not add external URLs, network requests, imports, storage, forms, WebSocket, eval or dynamic code execution. Keep game.css below 24 KB and game.js below 240 KB. game.js may begin with a shared global Engine toolkit; leave it untouched and keep using it.`,
           },
           {
             role: "user",
@@ -406,13 +403,8 @@ async function executeAssignedTask(projectId, taskId, projectsDir = PROJECTS_DIR
       gameCss: update.gameCss,
       tasks: metadata.tasks,
     });
-    const reviewResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${getApiKey()}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const reviewResponse = await llmFetch({
+    body: JSON.stringify({
         model: getModel(),
         temperature: 0,
         response_format: { type: "json_object" },
@@ -493,6 +485,11 @@ function getProjectAssetPath(projectId, fileName, projectsDir = PROJECTS_DIR) {
   return path.join(projectsDir, projectId, fileName);
 }
 
+function getProjectWebAssetPath(projectId, fileName, projectsDir = PROJECTS_DIR) {
+  if (!/^game-\d+-[a-f0-9]{8}$/.test(projectId) || !/^[\w.-]+\.(html|js|wasm|pck|png|json)$/i.test(fileName) || fileName.includes("..")) return null;
+  return path.join(projectsDir, projectId, "web", fileName);
+}
+
 async function readProjectSources(projectId, projectsDir = PROJECTS_DIR) {
   if (!/^game-\d+-[a-f0-9]{8}$/.test(projectId)) {
     throw new Error("Invalid project identifier.");
@@ -505,13 +502,28 @@ async function readProjectSources(projectId, projectsDir = PROJECTS_DIR) {
   return Object.fromEntries(files);
 }
 
+const README_WEB = "Traumatic Studios game\n\nHow to play: unzip this folder and double-click index.html.\n\nFiles: index.html (page), game.js (all game code, plain JavaScript), game.css (styles).\nEdit game.js in any text editor to change the game. To publish it, upload the unzipped files to any static host (itch.io, GitHub Pages, Netlify).\n";
+const README_GODOT = "Traumatic Studios game (Godot)\n\nweb/ is the browser build. It must be served over http, not opened from the file system:\n  - run `python -m http.server` (or `npx serve`) in this folder and open http://localhost:8000/index.html\n  - or upload the unzipped folder to itch.io / any static host.\ngodot/ is the editable Godot project: open it with Godot 4 (Import, then select godot/project.godot).\n";
+
+// Everything needed to play and edit a project, as a streamable ZIP. Throws ENOENT for unknown projects.
+async function projectArchive(projectId, projectsDir = PROJECTS_DIR) {
+  if (!/^game-\d+-[a-f0-9]{8}$/.test(projectId)) throw Object.assign(new Error("Invalid project identifier."), { code: "ENOENT" });
+  const directory = path.join(projectsDir, projectId);
+  const metadata = JSON.parse(await fs.readFile(path.join(directory, "project.json"), "utf8"));
+  const files = (await listFiles(directory)).filter((file) => file.name !== "project.json");
+  const readme = metadata.mode === "godot" ? README_GODOT : README_WEB;
+  return { filename: `${projectId}.zip`, chunks: zipChunks(files, [{ name: "README.txt", data: readme }]) };
+}
+
 module.exports = {
   addTaskNote,
+  projectArchive,
   saveProject,
   createPrototype,
   createDemoPrototype,
   executeAssignedTask,
   getProjectAssetPath,
+  getProjectWebAssetPath,
   listProjects,
   readProjectSources,
   updateTask,

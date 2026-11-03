@@ -1,3 +1,4 @@
+process.env.STUDIO_ENGINE = "web";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -52,7 +53,7 @@ test("runs the shared kickoff, parallel specialists, QA review, and producer han
   const events = [];
   await runStudio("A tiny game about a moon garden.", (event) => events.push(event), { memoryFile, projectsDir });
 
-  assert.equal(calls.length, 8);
+  assert.equal(calls.length, 11);
   assert.match(calls[1], /Producer's shared kickoff:\nReply 1/);
   assert.match(calls[2], /Producer's shared kickoff:\nReply 1/);
   assert.ok(calls[3].includes("Game designer's proposal:\nReply"));

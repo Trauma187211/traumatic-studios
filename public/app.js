@@ -25,6 +25,77 @@ const keySave = document.querySelector("#key-save");
 const keyClear = document.querySelector("#key-clear");
 const keyMessage = document.querySelector("#key-message");
 const keyBadge = document.querySelector("#key-badge");
+const providerSelect = document.querySelector("#api-provider");
+const baseUrlRow = document.querySelector("#base-url-row");
+const baseUrlInput = document.querySelector("#api-base-url");
+const keyLabel = document.querySelector("#api-key-label");
+let providerCatalog = {};
+const settingsButton = document.querySelector("#settings-button");
+const settingsSummary = document.querySelector("#settings-summary");
+const keySection = document.querySelector("#key-section");
+const keyClose = document.querySelector("#key-close");
+const liveLog = document.querySelector("#live-log");
+const liveNowText = document.querySelector("#live-now-text");
+const liveNowTime = document.querySelector("#live-now-time");
+let liveSince = Date.now();
+let settingsOpen = false;
+let firstStatusDone = false;
+let connectedJustNow = false;
+
+function setSettingsOpen(open) {
+  settingsOpen = open;
+  keySection.hidden = !open;
+  settingsButton.setAttribute("aria-expanded", String(open));
+  if (open) keySection.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+settingsButton.addEventListener("click", () => setSettingsOpen(keySection.hidden));
+keyClose.addEventListener("click", () => setSettingsOpen(false));
+
+function formatClock(ms) {
+  const total = Math.floor(ms / 1000);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+// Writes a timestamped line to the live log and makes it the "happening now" headline.
+function logLine(message, level = "info") {
+  if (!message) return;
+  const last = liveLog.lastElementChild;
+  if (last && last.dataset.message === message) return;
+  const item = document.createElement("li");
+  item.dataset.level = level;
+  item.dataset.message = message;
+  const time = document.createElement("time");
+  time.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const text = document.createElement("span");
+  text.textContent = message;
+  item.append(time, text);
+  liveLog.append(item);
+  liveLog.scrollTop = liveLog.scrollHeight;
+  liveNowText.textContent = message;
+  liveSince = Date.now();
+}
+
+setInterval(() => { liveNowTime.textContent = formatClock(Date.now() - liveSince); }, 1000);
+
+function applyProvider() {
+  const provider = providerCatalog[providerSelect.value];
+  if (!provider) return;
+  const custom = providerSelect.value === "custom";
+  baseUrlRow.hidden = !custom;
+  baseUrlInput.required = custom;
+  keyInput.required = provider.keyRequired;
+  keyLabel.textContent = provider.keyRequired ? "API KEY" : "API KEY (NOT NEEDED FOR THIS PROVIDER)";
+  keyModel.placeholder = provider.model || "model name";
+  keyModel.required = providerSelect.value !== "openai";
+}
+
+function setupProviders(providers) {
+  providerCatalog = providers;
+  for (const [id, provider] of Object.entries(providers)) providerSelect.append(new Option(provider.label, id));
+  providerSelect.addEventListener("change", applyProvider);
+  applyProvider();
+}
 const stageLabels = { kickoff: "SHARED KICKOFF", work: "PARALLEL WORK", review: "TEAM REVIEW", handoff: "FINAL HANDOFF", implementation: "PLAYABLE BUILD", "implementation-review": "BUILD QA" };
 const activeCards = new Map();
 const projectNotices = new Map();
@@ -80,8 +151,14 @@ function completePhase(phase) {
   }
 }
 
+briefInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  form.requestSubmit();
+});
+
 briefInput.addEventListener("input", () => {
-  charCount.textContent = `${briefInput.value.length.toLocaleString()} / 2,000`;
+  charCount.textContent = `${briefInput.value.length.toLocaleString()} / 5,000`;
 });
 
 async function checkStatus() {
@@ -100,7 +177,21 @@ async function checkStatus() {
       ? `LIVE AI · ${status.keySource === "environment" ? "FROM ENVIRONMENT" : status.keySource === "saved" ? "SAVED KEY" : "THIS SESSION"}`
       : "LOCAL AGENTS ACTIVE";
     keyClear.hidden = !status.configured || status.keySource === "environment";
+    settingsSummary.textContent = status.configured
+      ? `${status.provider || "OpenAI"} · ${status.model}`
+      : "Not connected · tap to set up";
+    settingsButton.classList.toggle("is-connected", status.configured);
+    keyClose.hidden = !status.configured;
+    if (!firstStatusDone) {
+      firstStatusDone = true;
+      setSettingsOpen(!status.configured);
+      if (!status.configured) keySection.scrollIntoView({ block: "nearest" });
+    } else if (status.configured && settingsOpen && connectedJustNow) {
+      setSettingsOpen(false);
+    }
+    connectedJustNow = false;
     if (status.configured && !keyModel.value) keyModel.placeholder = status.model;
+    if (status.providers && !providerSelect.options.length) setupProviders(status.providers);
     await loadProjects();
   } catch {
     modelConfigured = false;
@@ -161,7 +252,12 @@ function renderProjects(projects) {
     openLink.target = "_blank";
     openLink.rel = "noopener";
     openLink.textContent = "Open game ↗";
-    heading.append(title, openLink);
+    const downloadLink = document.createElement("a");
+    downloadLink.href = `/api/projects/${project.id}/download`;
+    downloadLink.download = `${project.id}.zip`;
+    downloadLink.textContent = "Download ⬇";
+    downloadLink.title = "Download this game as a .zip (open index.html to play)";
+    heading.append(title, openLink, downloadLink);
     if (projectNotices.has(project.id)) {
       const notice = document.createElement("p");
       notice.className = "project-notice";
@@ -286,17 +382,24 @@ function addTeamMessage(event) {
 function handleEvent(event) {
   if (event.type === "studio-started") {
     completedPhaseAgents.clear();
+    liveLog.replaceChildren();
+    logLine(`Sprint started with ${event.model}${event.memoryCount ? ` and ${event.memoryCount} saved lessons` : ""}.`);
+  } else if (event.type === "log") {
+    logLine(event.message, event.level);
   } else if (event.type === "phase-started") {
     startPhase(event.phase, event.message);
+    if (event.phase !== "learning") logLine(event.message);
   } else if (event.type === "phase-completed") {
     setPhaseState(event.phase, "done");
   } else if (event.type === "agent-started") {
     const phase = phaseForStage[event.stage];
     if (phase) startPhase(phase, `${event.name} is working`);
     addCard(event);
+    logLine(`${event.name} is working on ${event.stage.replace(/-/g, " ")}…`);
   } else if (event.type === "team-message") {
     addTeamMessage(event);
   } else if (event.type === "agent-completed") {
+    logLine(`${event.name} finished ${event.stage.replace(/-/g, " ")}.`, "ok");
     const card = activeCards.get(`${event.agent}:${event.stage}`);
     if (card) {
       card.classList.remove("is-active");
@@ -315,6 +418,7 @@ function handleEvent(event) {
   } else if (event.type === "studio-completed") {
     sprintProgress.querySelectorAll("li").forEach((step) => { step.dataset.state = "done"; });
     progressSummary.textContent = "All 7 sprint steps are complete. The team’s handoff and playable build are ready.";
+    logLine("Sprint complete. Your playable build is saved below.", "ok");
     clearInterval(elapsedTimer);
     runStatus.textContent = "SPRINT COMPLETE";
     runStatus.classList.remove("is-running");
@@ -324,6 +428,7 @@ function handleEvent(event) {
     progressSummary.textContent = "The sprint stopped before all steps were complete. Review the error below.";
     errorMessage.textContent = event.message;
     errorMessage.hidden = false;
+    logLine(`Stopped: ${event.message}`, "error");
     runStatus.textContent = "NEEDS ATTENTION";
     runStatus.classList.remove("is-running");
     startButton.disabled = false;
@@ -372,7 +477,7 @@ projectList.addEventListener("click", async (event) => {
   }
 });
 
-async function readEventStream(response) {
+async function readEventStream(response, onEvent = handleEvent) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -384,7 +489,7 @@ async function readEventStream(response) {
     buffer = messages.pop();
     for (const message of messages) {
       const dataLine = message.split("\n").find((line) => line.startsWith("data: "));
-      if (dataLine) handleEvent(JSON.parse(dataLine.slice(6)));
+      if (dataLine) onEvent(JSON.parse(dataLine.slice(6)));
     }
     if (done) break;
   }
@@ -434,14 +539,190 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+const learnForm = document.querySelector("#learn-form");
+const learnLinks = document.querySelector("#learn-links");
+const learnFollow = document.querySelector("#learn-follow");
+const learnButton = document.querySelector("#learn-button");
+const learnLog = document.querySelector("#learn-log");
+const learnCount = document.querySelector("#learn-count");
+const learnList = document.querySelector("#learn-list");
+const learnTracks = document.querySelector("#learn-tracks");
+const learnDrill = document.querySelector("#learn-drill");
+const curriculumButton = document.querySelector("#curriculum-button");
+
+async function loadKnowledge() {
+  try {
+    const result = await (await fetch("/api/knowledge")).json();
+    const report = result.report || {};
+    learnCount.textContent = result.total
+      ? `${result.total} LESSONS${report.asked ? ` · EXAM ${report.passed}/${report.asked}` : ""}`
+      : "NOTHING STUDIED YET";
+    if (!learnTracks.children.length && result.tracks) {
+      learnTracks.replaceChildren(...result.tracks.map((track) => {
+        const label = document.createElement("label");
+        label.className = "key-remember";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = track.id;
+        box.checked = true;
+        label.append(box, ` ${track.title} (${track.pages} pages)`);
+        return label;
+      }));
+    }
+    learnList.replaceChildren(...result.items.map((item) => {
+      const entry = document.createElement("li");
+      const text = document.createElement("span");
+      text.textContent = `${item.topic ? `${item.topic}: ` : ""}${item.lesson}`;
+      const source = document.createElement("a");
+      source.href = item.source;
+      source.target = "_blank";
+      source.rel = "noopener noreferrer";
+      source.textContent = item.title || item.source;
+      const forget = document.createElement("button");
+      forget.type = "button";
+      forget.className = "learn-forget";
+      forget.dataset.id = item.id;
+      forget.textContent = "Forget";
+      entry.append(text, source, forget);
+      return entry;
+    }));
+  } catch {
+    learnCount.textContent = "UNAVAILABLE";
+  }
+}
+
+learnList.addEventListener("click", async (event) => {
+  const button = event.target.closest(".learn-forget");
+  if (!button) return;
+  await fetch(`/api/knowledge/${encodeURIComponent(button.dataset.id)}`, { method: "DELETE" });
+  await loadKnowledge();
+});
+
+function addLearnLine(message, level = "info") {
+  const item = document.createElement("li");
+  item.dataset.level = level;
+  item.textContent = message;
+  learnLog.append(item);
+  learnLog.scrollTop = learnLog.scrollHeight;
+}
+
+async function runLearning(payload) {
+  learnButton.disabled = true;
+  curriculumButton.disabled = true;
+  learnLog.replaceChildren();
+  learnLog.hidden = false;
+  try {
+    const response = await fetch("/api/knowledge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, drill: learnDrill.checked }),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || "Could not start studying.");
+    await readEventStream(response, (item) => {
+      if (item.type === "learn-log") addLearnLine(item.message, item.level);
+      else if (item.type === "learn-done") addLearnLine(`Finished: studied ${item.pages} page${item.pages === 1 ? "" : "s"}, ${item.lessons} new lesson${item.lessons === 1 ? "" : "s"}${item.asked ? `, exam score ${item.passedFinal}/${item.asked}` : ""}. The team now has ${item.total} lessons and will apply them to new games.`, "ok");
+      else if (item.type === "error") addLearnLine(item.message, "error");
+    });
+  } catch (error) {
+    addLearnLine(error.message, "error");
+  } finally {
+    learnButton.disabled = false;
+    curriculumButton.disabled = false;
+    await loadKnowledge();
+  }
+}
+
+curriculumButton.addEventListener("click", () => {
+  const tracks = [...learnTracks.querySelectorAll("input:checked")].map((box) => box.value);
+  if (!tracks.length) { addLearnLine("Pick at least one track.", "warn"); learnLog.hidden = false; return; }
+  runLearning({ tracks });
+});
+
+learnForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const urls = learnLinks.value.split(/\s+/).map((value) => value.trim()).filter(Boolean);
+  runLearning({ urls, follow: learnFollow.checked });
+});
+
+const researchState = document.querySelector("#research-state");
+const researchLast = document.querySelector("#research-last");
+const researchToggle = document.querySelector("#research-toggle");
+let researchEnabled = true;
+
+async function refreshResearch() {
+  try {
+    const info = await (await fetch("/api/research")).json();
+    researchEnabled = info.enabled;
+    researchState.textContent = !info.enabled ? "PAUSED" : info.busy ? "YIELDING TO A BUILD" : "WORKING IN THE BACKGROUND";
+    researchLast.textContent = `${info.pages} pages studied, ${info.lessons} lessons gained, ${info.today}/${info.dailyCap} today, ${info.queued} queued, ${info.curriculumLeft} curriculum pages left. Latest: ${info.lastMessage}`;
+    researchToggle.textContent = info.enabled ? "Pause research" : "Resume research";
+  } catch {
+    researchState.textContent = "UNAVAILABLE";
+  }
+}
+
+researchToggle.addEventListener("click", async () => {
+  await fetch("/api/research", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !researchEnabled }) });
+  await refreshResearch();
+});
+
 checkStatus();
 loadMemory();
+loadKnowledge();
+refreshResearch();
+setInterval(() => { refreshResearch(); loadKnowledge(); }, 15000);
 
 function showKeyMessage(text, isError) {
   keyMessage.textContent = text;
   keyMessage.classList.toggle("is-error", isError);
   keyMessage.hidden = false;
 }
+
+document.querySelector("#curl-fill").addEventListener("click", () => {
+  const box = document.querySelector("#curl-text");
+  try {
+    const found = window.parseCurl(box.value);
+    const preset = Object.entries(providerCatalog).find(([id, p]) => id !== "custom" && p.baseUrl === found.baseUrl);
+    providerSelect.value = preset ? preset[0] : "custom";
+    applyProvider();
+    if (!preset) baseUrlInput.value = found.baseUrl;
+    if (found.key) keyInput.value = found.key;
+    if (found.model) keyModel.value = found.model;
+    box.value = "";
+    const missing = [!found.key && "API key", !found.model && "model"].filter(Boolean);
+    showKeyMessage(`Filled in from cURL (${preset ? preset[1].label.split(" (")[0] : found.baseUrl}).${missing.length ? ` Still needed: ${missing.join(" and ")}.` : " Click Verify & use key."}`, false);
+  } catch (error) {
+    showKeyMessage(error.message, true);
+  }
+});
+
+function currentBaseUrl() {
+  return providerSelect.value === "custom" ? baseUrlInput.value : (providerCatalog[providerSelect.value] || {}).baseUrl;
+}
+
+document.querySelector("#models-load").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  showKeyMessage("Asking the provider for its models…", false);
+  try {
+    const response = await fetch("/api/settings/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: keyInput.value, baseUrl: currentBaseUrl() }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not load models.");
+    const list = document.querySelector("#api-model-list");
+    list.replaceChildren(...result.models.map((id) => new Option(id)));
+    keyModel.value = "";
+    keyModel.focus();
+    showKeyMessage(`${result.models.length} models loaded. Click the model field to pick one.`, false);
+  } catch (error) {
+    showKeyMessage(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 keyForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -451,12 +732,18 @@ keyForm.addEventListener("submit", async (event) => {
     const response = await fetch("/api/settings/key", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: keyInput.value, model: keyModel.value, remember: keyRemember.checked }),
+      body: JSON.stringify({
+        apiKey: keyInput.value,
+        model: keyModel.value,
+        remember: keyRemember.checked,
+        baseUrl: providerSelect.value === "custom" ? baseUrlInput.value : (providerCatalog[providerSelect.value] || {}).baseUrl,
+      }),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not save the key.");
     keyInput.value = "";
     showKeyMessage(`Key verified. The team now uses live AI (${result.model}).`, false);
+    connectedJustNow = true;
     await checkStatus();
   } catch (error) {
     showKeyMessage(error.message, true);
