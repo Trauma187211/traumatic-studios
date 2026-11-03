@@ -1,0 +1,7 @@
+node_modules/
+.vscode/
+data/
+projects/
+*.tmp
+*.log
+.env*

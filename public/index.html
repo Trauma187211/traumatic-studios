@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#070a0e">
+    <title>Traumatic Studios — Game Studio</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="/" aria-label="Traumatic Studios home">
+          <img class="brand-logo" src="/traumatic-studios-logo.png" alt="Traumatic Studios — Build. Create. Evolve.">
+        </a>
+
+        <div class="sidebar-label">YOUR STUDIO</div>
+        <div class="studio-card">
+          <span class="status-dot"></span>
+          <span><strong>Studio floor</strong><small id="connection-status">Checking model connection…</small></span>
+        </div>
+
+        <div class="sidebar-label team-label">THE TEAM <span>04</span></div>
+        <ul class="team-list">
+          <li><span class="avatar avatar-producer">P</span><span><strong>Producer</strong><small>Scope &amp; direction</small></span><i></i></li>
+          <li><span class="avatar avatar-designer">D</span><span><strong>Game designer</strong><small>Player experience</small></span><i></i></li>
+          <li><span class="avatar avatar-engineer">E</span><span><strong>Gameplay engineer</strong><small>Systems &amp; build plan</small></span><i></i></li>
+          <li><span class="avatar avatar-qa">Q</span><span><strong>QA tester</strong><small>Risks &amp; acceptance</small></span><i></i></li>
+        </ul>
+
+        <div class="sidebar-note"><span class="sparkle">✳</span><p>Small team. Shared context. One playable thing at a time.</p></div>
+        <div class="sidebar-footer">LOCAL WORKSPACE <span>v0.1</span></div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar"><span>WORKSPACE <b>/</b> NEW PROJECT</span><span class="local-badge"><span></span> LOCAL SESSION</span></header>
+        <section class="welcome">
+          <div class="eyebrow"><span></span> YOUR FIRST STUDIO SPRINT</div>
+          <h1>Make something<br><em>worth playing.</em></h1>
+          <p class="intro">Give your team a spark of an idea. They’ll shape it together, challenge the details, and hand back a focused plan for your first playable build.</p>
+        </section>
+
+        <form id="brief-form" class="brief-panel">
+          <div class="panel-heading"><div><span class="step-number">01</span><h2>What are we making?</h2></div><span class="hint">A little detail goes a long way</span></div>
+          <label for="brief">YOUR GAME IDEA</label>
+          <textarea id="brief" name="brief" minlength="10" maxlength="2000" required placeholder="A cozy exploration game about a tiny lighthouse keeper who guides lost sea creatures home…"></textarea>
+          <div class="form-footer"><span id="char-count">0 / 2,000</span><button id="start-button" type="submit"><span>Bring the team together</span><span aria-hidden="true">↗</span></button></div>
+        </form>
+
+        <section id="key-section" class="memory-section key-section" aria-live="polite">
+          <div class="panel-heading memory-heading"><div><span class="step-number">🔑</span><h2>Bring your own API key</h2></div><span id="key-badge" class="hint">LOCAL AGENTS ACTIVE</span></div>
+          <p class="memory-caption">Local agents run the whole studio with no key. Add an OpenAI API key to switch the team to live AI. Your key stays on this computer and is only sent to OpenAI.</p>
+          <form id="key-form" class="key-form" autocomplete="off">
+            <label for="api-key">API KEY</label>
+            <input id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…" required>
+            <label for="api-model">MODEL (OPTIONAL)</label>
+            <input id="api-model" name="model" type="text" autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini">
+            <label class="key-remember"><input id="api-remember" type="checkbox"> Remember on this computer (saved unencrypted in the app’s data folder)</label>
+            <div class="key-actions">
+              <button id="key-save" type="submit">Verify &amp; use key</button>
+              <button id="key-clear" type="button" hidden>Remove key</button>
+            </div>
+          </form>
+          <p id="key-message" class="key-message" role="status" hidden></p>
+        </section>
+
+        <section class="memory-section" aria-live="polite">
+          <div class="panel-heading memory-heading"><div><span class="step-number">✳</span><h2>Studio memory</h2></div><span class="hint">LEARNINGS CARRIED BETWEEN SPRINTS</span></div>
+          <p class="memory-caption">Useful team lessons, saved on this machine and shared with future projects.</p>
+          <p id="memory-empty" class="memory-empty">No learnings saved yet. The team will build its first shared lessons after a sprint.</p>
+          <ul id="memory-list" class="memory-list"></ul>
+          <p id="memory-error" class="memory-error" role="alert" hidden></p>
+        </section>
+
+        <section id="work-section" class="work-section" hidden aria-live="polite">
+          <div class="panel-heading work-heading"><div><span class="step-number">02</span><h2>Studio floor</h2></div><span id="run-status" class="run-status">READY</span></div>
+          <p id="progress-summary" class="progress-summary" role="status">The team’s current step will show here.</p>
+          <ol id="sprint-progress" class="sprint-progress" aria-label="Sprint progress">
+            <li data-phase="scope"><span>01</span><strong>Scope</strong></li>
+            <li data-phase="collaborate"><span>02</span><strong>Design + engineering</strong></li>
+            <li data-phase="plan-review"><span>03</span><strong>Plan review</strong></li>
+            <li data-phase="handoff"><span>04</span><strong>Producer handoff</strong></li>
+            <li data-phase="build"><span>05</span><strong>Playable build</strong></li>
+            <li data-phase="build-review"><span>06</span><strong>Build review</strong></li>
+            <li data-phase="learning"><span>07</span><strong>Save learnings</strong></li>
+          </ol>
+          <section class="team-chat" aria-label="Bot team conversation" aria-live="polite">
+            <div class="team-chat-heading"><h3>TEAM CHAT</h3><span>SHARED DECISIONS &amp; HANDOFFS</span></div>
+            <p id="team-chat-empty" class="team-chat-empty">Team messages will appear here when bots share decisions, proposals, and reviews.</p>
+            <div id="team-chat-messages" class="team-chat-messages"></div>
+          </section>
+          <div id="activity" class="activity"><div class="activity-line"></div><div id="activity-items"></div></div>
+          <div id="error-message" class="error-message" role="alert" hidden></div>
+        </section>
+
+        <section id="projects-section" class="projects-section" aria-live="polite">
+          <div class="panel-heading"><div><span class="step-number">03</span><h2>Playable builds &amp; tasks</h2></div><span class="hint">PROJECT WORKSPACE</span></div>
+          <p id="projects-empty" class="projects-empty">After a sprint, the gameplay engineer saves a playable build here. The team’s owned follow-up tasks will appear alongside its sandboxed preview.</p>
+          <div id="project-list" class="project-list"></div>
+        </section>
+
+        <footer class="page-footer"><span>GOOD GAMES START SMALL.</span><span>BUILT TO MAKE, NOT JUST PLAN.</span></footer>
+      </main>
+    </div>
+  </body>
+</html>

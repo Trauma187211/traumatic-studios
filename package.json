@@ -1,0 +1,13 @@
+{
+  "name": "traumatic-studios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A small collaborative AI game-development studio",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
