@@ -2,6 +2,7 @@
   "name": "traumatic-studios",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "A small collaborative AI game-development studio",
   "scripts": {
     "start": "node server.js",
