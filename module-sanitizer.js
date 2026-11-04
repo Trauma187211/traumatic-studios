@@ -53,7 +53,10 @@ function stripModuleSyntax(code) {
     .replace(/^[ \t]*export\s*\{[^}]*\}\s*(?:from\s*["'][^"']*["'])?;?[ \t]*$/gm, "")
     .replace(/^([ \t]*)export\s+(?=(?:async\s+)?(?:const|let|var|function|class)\b)/gm, "$1")
     .replace(/^[ \t]*module\.exports\s*=\s*\{[\s\S]*?\}[ \t]*;?[ \t]*$/gm, "")
-    .replace(/^[ \t]*module\.exports\s*=\s*[^;\n{]*;?[ \t]*$/gm, "");
+    .replace(/^[ \t]*module\.exports\s*=\s*[^;\n{]*;?[ \t]*$/gm, "")
+    // Keep model-created names from redeclaring the shared runtime globals.
+    .replace(/\b(const|let|var|function|class)(\s+)(Engine|Kit)\b/g, "$1$2Local$3")
+    .replace(/\b(async\s+function)(\s+)(Engine|Kit)\b/g, "$1$2Local$3");
 }
 
 function sanitizeModule(code, api) {

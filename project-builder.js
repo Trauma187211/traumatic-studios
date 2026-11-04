@@ -22,7 +22,7 @@ async function askForProject(brief, handoff) {
       messages: [
         {
           role: "system",
-          content: "You are the gameplay engineer at Traumatic Studios. Build a small playable browser prototype with plain HTML, CSS and JavaScript. Return only a JSON object with string fields indexHtml, gameJs, gameCss and a tasks array of 3 to 5 objects with title, owner and description. Owners must be exactly Game designer, Gameplay engineer, QA tester, or Producer. The HTML must reference only game.css and game.js. Do not use external assets, external URLs, network requests, imports, storage, forms or third-party libraries. Make the core interaction playable with keyboard and pointer, and include a restart/reset path. Keep the code concise and self-contained.",
+          content: "You are the gameplay engineer at Traumatic Studios. Build a small playable browser prototype with plain HTML, CSS and JavaScript. Return only a JSON object with string fields indexHtml, gameJs, gameCss and a tasks array of 3 to 5 objects with title, owner and description. Owners must be exactly Game designer, Gameplay engineer, QA tester, or Producer. NON-NEGOTIABLE: put all JavaScript in gameJs and all CSS in gameCss; indexHtml must load them as local ./game.js and ./game.css files, with no inline scripts or styles. Do not use external assets, external URLs, network requests, imports, storage, forms or third-party libraries. Make the core interaction playable with keyboard and pointer, and include a restart/reset path. Keep the code concise and self-contained.",
         },
         {
           role: "user",
@@ -69,7 +69,38 @@ function validateProject(project) {
     throw new Error("Generated project exceeds the 300 KB total size limit.");
   }
 
-  const scripts = [...files["index.html"].matchAll(/<script\b[^>]*>/gi)];
+  // Models often inline scripts or use wrong paths; keep game logic in game.js and normalize the shell.
+  let html = files["index.html"]
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
+    .replace(/<script\b[^>]*\/?>/gi, "")
+    .replace(/<link\b[^>]*rel=["']?stylesheet["']?[^>]*>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "");
+  if (!/<html\b/i.test(html)) {
+    html = `<!doctype html><html lang="en"><head></head><body>${html}</body></html>`;
+  } else if (!/<head\b/i.test(html)) {
+    html = html.replace(/<html\b[^>]*>/i, (tag) => `${tag}<head></head>`);
+  }
+  if (!/<\/head\s*>/i.test(html)) {
+    html = html.replace(/<body\b/i, "</head><body");
+    if (!/<\/head\s*>/i.test(html)) html = html.replace(/<html\b[^>]*>/i, (tag) => `${tag}<head></head>`);
+  }
+  if (!/<body\b/i.test(html)) html = html.replace(/<\/head\s*>/i, "</head><body>");
+  if (!/<\/body\s*>/i.test(html)) {
+    html = /<\/html\s*>/i.test(html) ? html.replace(/<\/html\s*>/i, "</body></html>") : `${html}</body></html>`;
+  }
+  html = html.replace(/<\/head\s*>/i, '<link rel="stylesheet" href="./game.css"></head>')
+    .replace(/<\/body\s*>/i, '<script src="./game.js"></script></body>');
+  files["index.html"] = html;
+  for (const name of REQUIRED_FILES) {
+    const limit = name === "game.js" ? MAX_GAME_JS_BYTES : MAX_FILE_BYTES;
+    if (Buffer.byteLength(files[name], "utf8") > limit) {
+      throw new Error(`Generated ${name} is missing or exceeds the ${limit / 1000} KB per-file limit.`);
+    }
+  }
+  if (REQUIRED_FILES.reduce((total, name) => total + Buffer.byteLength(files[name], "utf8"), 0) > MAX_PROJECT_BYTES) {
+    throw new Error("Generated project exceeds the 300 KB total size limit.");
+  }
+  const scripts = [...html.matchAll(/<script\b[^>]*>/gi)];
   if (
     !/href=["']\.\/game\.css["']/.test(files["index.html"])
     || scripts.length !== 1

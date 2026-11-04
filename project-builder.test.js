@@ -43,7 +43,17 @@ test("rejects project output with external or dynamically executed code", () => 
     '<script src="./game.js"></script>',
     "<script>alert(1)</script>",
   );
-  assert.throws(() => validateProject(inlineScript), /must load the local game.css and game.js/);
+  const repaired = validateProject(inlineScript);
+  assert.match(repaired.files["index.html"], /<script src="\.\/game\.js"><\/script>/);
+  assert.doesNotMatch(repaired.files["game.js"], /alert\(1\)/);
+
+  const malformedShell = validProject();
+  malformedShell.indexHtml = '<html><body><h1>Play</h1><script>const duplicate = true;</script>';
+  const normalized = validateProject(malformedShell);
+  assert.match(normalized.files["index.html"], /href="\.\/game\.css"/);
+  assert.match(normalized.files["index.html"], /src="\.\/game\.js"/);
+  assert.match(normalized.files["index.html"], /<\/head>[\s\S]*<body>/);
+  assert.doesNotMatch(normalized.files["index.html"], /const duplicate/);
 
   const oversized = validProject();
   oversized.gameCss = "x".repeat(24_001);
