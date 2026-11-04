@@ -61,7 +61,13 @@ foreach ($pair in @(@("START.bat", $start), @("SETUP AI.bat", $setup), @("READ M
 
 # Safety scan: refuse to package anything that looks like a secret or personal data.
 $bad = Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -match 'settings\.json|access-password|\.env' }
-$hits = Get-ChildItem $stage -Recurse -File -Include *.js,*.json,*.txt,*.bat,*.html | Where-Object { $_.Length -lt 3MB } | Select-String -Pattern 'sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,}|gsk_[A-Za-z0-9]{20,}|RumRun|C:\\Users\\geral' -List
+$secretWords = @()
+foreach ($file in @((Join-Path ([Environment]::GetFolderPath("Desktop")) "Traumatic Studios\data\access-password.txt"), (Join-Path ([Environment]::GetFolderPath("Desktop")) "Traumatic Studios Hosted\data\access-password.txt"))) {
+  if (Test-Path $file) { $secretWords += (Get-Content $file -Raw).Trim() }
+}
+$secretWords += $env:USERPROFILE
+$pattern = (@('sk-[A-Za-z0-9]{20,}', 'AIza[0-9A-Za-z_-]{30,}', 'gsk_[A-Za-z0-9]{20,}') + @($secretWords | Where-Object { $_ } | ForEach-Object { [regex]::Escape($_) })) -join '|'
+$hits = Get-ChildItem $stage -Recurse -File -Include *.js,*.json,*.txt,*.bat,*.html | Where-Object { $_.Length -lt 3MB } | Select-String -Pattern $pattern -List
 if ($bad -or $hits) { throw "Release blocked, found: $(@($bad.Name) + @($hits.Path) -join ', ')" }
 if (Get-ChildItem (Join-Path $stage "data"), (Join-Path $stage "projects") -Force) { throw "data/projects must be empty" }
 
