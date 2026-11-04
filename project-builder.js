@@ -100,12 +100,20 @@ function validateProject(project) {
   if (REQUIRED_FILES.reduce((total, name) => total + Buffer.byteLength(files[name], "utf8"), 0) > MAX_PROJECT_BYTES) {
     throw new Error("Generated project exceeds the 300 KB total size limit.");
   }
-  const scripts = [...html.matchAll(/<script\b[^>]*>/gi)];
-  if (
-    !/href=["']\.\/game\.css["']/.test(files["index.html"])
-    || scripts.length !== 1
-    || !/\bsrc=["']\.\/game\.js["']/.test(scripts[0][0])
-  ) {
+  const hasLocalAssets = (page) => {
+    const found = [...page.matchAll(/<script\b[^>]*>/gi)];
+    return /href=["']\.\/game\.css["']/.test(page)
+      && found.length === 1
+      && /\bsrc=["']\.\/game\.js["']/.test(found[0][0]);
+  };
+  if (!hasLocalAssets(files["index.html"])) {
+    // Last resort: rebuild a clean shell around whatever body content survived.
+    const body = (/<body\b[^>]*>([\s\S]*?)(?:<\/body\s*>|$)/i.exec(project.indexHtml)?.[1] ?? "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/<\/?(?:script|style|link|html|head|body)\b[^>]*>/gi, "");
+    files["index.html"] = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Game</title><link rel="stylesheet" href="./game.css"></head><body>${body.trim() || '<canvas id="game"></canvas>'}<script src="./game.js"></script></body></html>`;
+  }
+  if (!hasLocalAssets(files["index.html"])) {
     throw new Error("Generated index.html must load the local game.css and game.js files.");
   }
   if (/(?:https?:\/\/|fetch\s*\(|XMLHttpRequest|WebSocket|\bimport\b|\beval\s*\()/i.test(files["game.js"])) {

@@ -1,7 +1,7 @@
 const { getModel, keylessPool, usingKeylessDefault } = require("./settings");
 const { cleanReply, llmFetch, withNotices } = require("./llm");
 const { getMemoryFile, readLearnings, saveLearnings } = require("./memory-store");
-const { createPrototype, readProjectSources } = require("./project-builder");
+const { createPrototype, createDemoPrototype, readProjectSources } = require("./project-builder");
 const { createGame } = require("./game-generator");
 const { createGodotGame } = require("./godot-generator");
 const { findGodot } = require("./godot-runner");
@@ -130,7 +130,13 @@ async function runSprint(brief, emit, { memoryFile = getMemoryFile(), projectsDi
       project = await createGame(brief, handoff, buildOptions);
     } catch (error) {
       emit({ type: "phase-started", phase: "build", message: `Full build pipeline failed (${error.message.slice(0, 120)}); falling back to a compact prototype.` });
-      project = await createPrototype(brief, handoff, projectsDir ? { projectsDir } : undefined);
+      const protoOptions = projectsDir ? { projectsDir } : undefined;
+      try {
+        project = await createPrototype(brief, handoff, protoOptions);
+      } catch (protoError) {
+        emit({ type: "phase-started", phase: "build", message: `Compact prototype failed too (${protoError.message.slice(0, 100)}); shipping the built-in playable template so the sprint still delivers.` });
+        project = await createDemoPrototype(protoOptions);
+      }
     }
   }
   emit({

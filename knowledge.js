@@ -7,7 +7,7 @@ const { cleanReply, llmFetch } = require("./llm");
 
 const MAX_ITEMS = 1500;
 const MAX_PAGE_BYTES = 1_500_000;
-const MAX_URLS = 10;
+const MAX_URLS = 40;
 const MAX_FOLLOWED = 12;
 const PAGE_TEXT_FOR_MODEL = 28_000;
 const KNOWLEDGE_BUDGET_CHARS = 4_800;
@@ -167,6 +167,7 @@ Rules:
 - Base every lesson on subjects the page actually covers (its course topics, syllabus items, tutorial steps, documentation sections). You may explain how those named techniques are done using well-established game-development practice, but never invent claims about the page or its author.
 - Each lesson is concrete and actionable: a technique, formula, pattern, design rule, workflow step or pitfall, written so an engineer or designer could apply it directly. Prefer specifics (for example "buffer jump input for about 100 ms and allow jumping for about 100 ms after leaving a ledge") over generalities.
 - Skip marketing, prices, reviews, instructor biographies, navigation and anything unrelated to making games.
+- Postmortems, case studies and articles about shipped or failed projects (including large AAA productions) ARE valuable: extract the root cause of each failure, the workaround or fix the team used, and the transferable rule, then restate it as a technique or pitfall that applies to small games and to build/tooling/engine-version problems. Never return an empty lessons array for such articles.
 - Tag each lesson with 2 to 5 lowercase keywords (genre, engine, topic) and put "general" among the tags when it applies to any game.
 Return only JSON: { "title": short page title, "lessons": [ { "topic": 2-6 words, "tags": [strings], "lesson": 1-3 sentences } ] } with 3 to 10 lessons. If the page has nothing useful for making games, return an empty lessons array.`;
 
