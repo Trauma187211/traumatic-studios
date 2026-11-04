@@ -5,3 +5,4 @@ projects/
 *.tmp
 *.log
 .env*
+dist/
