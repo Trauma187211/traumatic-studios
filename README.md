@@ -1,76 +1,184 @@
-# Traumatic Studios — Game Studio
+# Traumatic Studios
 
-A small, local-first game-development studio prototype. A producer scopes a game brief, a designer and gameplay engineer work in parallel from the shared kickoff, QA reviews both proposals, and the producer turns the team discussion into a practical handoff. The team shares visible progress messages and carries reusable lessons from completed sprints into future briefs.
+A small studio of AI agents that turns a game brief into a playable game in your browser. It is built to work for free: no API key is needed, and anyone with an idea can use it, whatever the genre.
 
-During a sprint, the dashboard shows the current step, active bot responses, elapsed wait time, and a separate team-chat transcript. Chat messages quote concise excerpts from the producer kickoff, specialist proposals, QA reviews, and producer handoff, with sender, recipient, and stage labels.
+A producer scopes your brief, a designer and a gameplay engineer work from the same kickoff, QA reviews both proposals, and the producer writes a handoff. A game generator then builds a playable project from that handoff, checks it, repairs it, and lets you download it.
 
-The dashboard uses the Traumatic Studios raven logo and a black, electric-blue, and steel visual theme. The logo asset lives at `public/traumatic-studios-logo.png`.
+## Contents
 
-## Requirements
+- [Quick start](#quick-start)
+- [Download for Windows](#download-for-windows)
+- [How a game gets built](#how-a-game-gets-built)
+- [Models and keys](#models-and-keys)
+- [Sharing with friends](#sharing-with-friends)
+- [Configuration](#configuration)
+- [HTTP API](#http-api)
+- [Project layout](#project-layout)
+- [Building releases](#building-releases)
+- [Testing](#testing)
+- [Known limits](#known-limits)
+- [License](#license)
 
-- Node.js 20 or newer
-- An OpenAI API key is **optional**. Without one, built-in local agents run the whole studio.
+## Quick start
 
-## Run locally
+Requires Node.js 20 or newer. There are no npm dependencies.
 
-```powershell
+```
 npm start
 ```
 
-Then visit <http://localhost:3000> and enter a brief of at least 10 characters. With no key, the local agents run the full sprint: kickoff, design and engineering proposals, QA review, handoff, a playable game saved under `projects/`, four owned follow-up tasks, and saved studio learnings. On a task, **Ask [role]** adds an owner-specific working plan for you to carry out, since local agents do not rewrite code.
+Open http://localhost:3000, type a brief, and press run. The server listens on `127.0.0.1` only. Set `PORT` to change the port.
 
-## Bring your own API key
+Press **Demo** (the `/api/demo-run` route) to see a full sprint without calling any model.
 
-Use the **Bring your own API key** section in the dashboard to switch the team to live AI. The key is verified with OpenAI before use, and an optional model name can be set. By default it is kept in memory for the current session only. Tick **Remember on this computer** to save it, unencrypted, to `data/settings.json` (override with `STUDIO_SETTINGS_PATH`). **Remove key** clears it. The `OPENAI_API_KEY` and `OPENAI_MODEL` environment variables still work as a fallback, and a key entered in the dashboard takes precedence. The key is sent only to OpenAI and never back to the browser; requests from other origins cannot change it.
-## Free, keyless operation
+## Download for Windows
 
-With no API key the studio uses a pool of free providers and fails over between them instantly when one is rate-limited: a local **Ollama** model first (unlimited, runs on your PC; it prefers `studio-coder`, `qwen3-coder`, `qwen2.5-coder`, then others) and **Pollinations** second. Install Ollama and run `ollama pull qwen2.5-coder:7b` (a larger coder model is better if your hardware allows) for the best keyless results. If only Pollinations is available the studio runs in lean mode and skips the optional review and learnings calls. Set `STUDIO_OLLAMA=off` to ignore Ollama.
+The [latest release](https://github.com/Trauma187211/traumatic-studios/releases/latest) is a zip that bundles the Node runtime, so nothing has to be installed first.
 
-## Engine Kit
+1. Extract the zip.
+2. Run `START.bat`. The dashboard opens in your browser.
+3. Optional: run `SETUP AI.bat` to install [Ollama](https://ollama.com) and a local model. Without it, the studio uses a slower free online model (Pollinations).
 
-Every browser game is assembled on top of `studio-engine.js` (loop, input, audio, particles, camera) and `studio-kit.js`, a pre-tested library: tile maps with wall-sliding collision, platformer and top-down controllers (coyote time, jump buffering, variable jump), health and knockback, timers, tweens, state machines, A* and flow-field pathfinding, line of sight, noise, always-connected room/cave/maze generators, a lock-and-key dungeon generator with a verified solvable key order, a procedural music composer, a dialogue box and palettes. `studio-kit.test.js` covers it. Generated code is also linted for a few learned rules (seeded randomness, dt-based timing, sound and game-feel calls); violations go through the repair loop.
+The zip ships with empty `data` and `projects` folders. No keys or settings are included. The build is unsigned, so Windows SmartScreen may warn you the first time.
 
-## Research while the app is closed
+## How a game gets built
 
-The server researches while it is running. To keep researching when the dashboard is closed, run `install-background-research.bat` once: it places a hidden launcher in your Startup folder (no admin needed) that runs `research-daemon.js` at sign-in. The daemon steps aside whenever the dashboard is open. Run `remove-background-research.bat` to undo. It only runs while the PC is on and you are signed in.
+1. **Sprint.** The producer, designer, engineer and QA agents discuss the brief. Progress messages stream to the dashboard.
+2. **Handoff.** The producer writes a practical plan. Lessons from earlier sprints are carried into new briefs (`memory-store.js`).
+3. **Generation.** `game-generator.js` picks a route:
+   - **Blueprint route** (default for free, keyless models). A router (`blueprint-router.js`) reads the brief and chooses a proven, tested blueprint from `studio-blueprints.js`: *adventure* (Zelda-like), *platformer* or *arena*. The model fills in data such as the story, map, enemies and items rather than writing an engine. A blueprint game typically builds in about 20 seconds on a local 7B model, against 10 to 15 minutes for freeform.
+   - **Freeform route.** For any other genre, or when blueprints are off, the model writes the game code itself on top of the shared engine and kit.
+   - **Godot route.** `godot-generator.js` writes a Godot project and `godot-runner.js` checks and exports it to the web. This needs Godot installed (see `GODOT_PATH`).
+4. **Safety nets.** Each module passes through `module-sanitizer.js`, which makes deterministic fixes to common small-model mistakes. Forbidden-code checks and a smoke test then run, and a repair loop retries failures.
+5. **Result.** The game is saved under `projects/`. Download it from the dashboard as a zip containing the game and a README.
 
-## Teach the studio
+### The engine and kit
 
-The **Teach the studio** panel makes the team study text sources and remember them. Start the built-in free curriculum (design theory, genre playbooks, game programming patterns, algorithms, browser game craft and the Godot docs) or paste your own links. For each page the team writes lessons, sits a closed-book exam on them, is re-taught anything it misses and is retested. Lessons are saved in `data/knowledge.json` and the most relevant ones are added to the planning, design and code prompts of every new game. Videos cannot be studied; only readable text pages.
+`studio-engine.js` is a browser toolkit that generated games use: game loop, input, audio, particles, camera, collision, grids and pathfinding. `studio-kit.js` adds higher-level pieces on top of it. Generated games load them, so a model only has to write game-specific logic.
 
-## Windows desktop app
+### Learning
 
-From this project folder, run `.\build-desktop.ps1` in PowerShell. It creates `Traumatic Studios.exe` and a `Traumatic Studios` shortcut on your Windows Desktop, packages the Node.js runtime and app files under `%USERPROFILE%\Desktop\Traumatic Studios`, and copies existing saved projects into that package. Open the shortcut to launch the dashboard in your browser. The app runs without a console window and shows a system-tray icon; right-click it and choose **Quit** to stop the server. The app folder is portable as a whole, and should not be separated from its `runtime`, `public`, or `projects` folders.
+The studio can study free reading material in the background, so its notes improve over time.
 
-With a key, each sprint makes eight model requests: producer kickoff, two parallel specialist proposals, QA plan review, producer handoff, prototype implementation, QA source review, and a learning summary. Each task run makes up to two more (the bot's change and an independent QA review).
-Studio memory is stored in `data/studio-memory.json` on this machine. Only short, reusable lessons are saved—not briefs or full model responses. Set `STUDIO_MEMORY_PATH` before starting the server to choose a different location. This is retrieval-based learning: future agents receive saved lessons as context; the model itself is not retrained. Project briefs are processed in memory and are not persisted. Local-agent sprints save fixed, generic lessons.
+- `curriculum.js` lists study tracks of public pages (Wikipedia, Game Programming Patterns, Godot and MDN docs, Red Blob Games).
+- `knowledge.js` fetches and summarises them into lessons, and refuses private or local addresses.
+- `research.js` and `research-daemon.js` run that study. The daemon works without the dashboard.
+- `seed-knowledge.json` is the starting set of lessons.
 
-After the handoff, the engineer builds the game and saves it with owned follow-up tasks, shown with a sandboxed preview. With a key, **Ask [role]** has that bot change the game and an independent QA bot must approve it before it is saved; rejected changes leave the game untouched, and only one bot can change a project at a time.
+To keep research running while the app is closed, use `install-background-research.bat` (and `remove-background-research.bat` to undo it). Research can be switched off from the dashboard.
 
-### Build engines (with a key)
-1. **Godot (preferred).** If Godot 4 is found (set `GODOT_PATH`, or it is auto-detected in Downloads, Desktop or Documents), the game is written as a real GDScript project, loaded and play-tested headless by Godot with random input, repaired from Godot's own errors, and exported to Web (`projects/<id>/web`; editable source in `projects/<id>/godot`). Web export templates for your Godot version must be installed. Generated GDScript that uses OS, file, network or shell APIs is rejected. Task bots patch the scripts, re-verify and re-export.
-2. **Browser engine.** If Godot is missing or fails, a multi-module canvas game (up to 240 KB `game.js`, built on the `studio-engine.js` toolkit) is generated and smoke-tested in a stub DOM. Set `STUDIO_ENGINE=web` to force this.
-3. **Compact prototype.** Final fallback: the original small single-shot game (24 KB per file).
+## Models and keys
 
-Generated code is never executed in the server process (Godot runs as a separate headless process on your machine).
-The UI binds only to `127.0.0.1` by default; set `PORT` to change the local port. Do not expose this development server to an untrusted network.
+| Source | Cost | Notes |
+| --- | --- | --- |
+| Local Ollama (`qwen2.5-coder:7b` by default) | Free | Private and unlimited. Uses your CPU or GPU. A larger model such as `qwen2.5-coder:14b` gives better results. |
+| Pollinations | Free | Used as a fallback. It allows about one request every 30 seconds. |
+| Any OpenAI-compatible API | Your key | Add it under settings in the dashboard, or set `OPENAI_API_KEY`, `OPENAI_BASE_URL` and `OPENAI_MODEL`. |
 
-## Tests
+Keys saved in the dashboard are stored in `data\` on your machine. That folder is git-ignored.
 
-```powershell
+## Sharing with friends
+
+There are two ways to share, and both keep your settings and keys private.
+
+**Give them the download.** Friends run their own copy on their own PC. This is the simplest option, uses their CPU and not yours, and needs no hosting.
+
+**Host a live copy.** A hosted copy runs on your PC and is reached over a tunnel, so it uses your CPU. Run `make-hosted.ps1` to build a hosted folder on your Desktop. Its `START HOSTED.bat` starts the server on port 3100 together with a Cloudflare quick tunnel (`cloudflared`).
+
+Hosted mode (`STUDIO_HOSTED=1`) and the access gate in `access.js` provide the following:
+
+- Every page and API route needs a password. A login page handles it.
+- Five wrong attempts lock that client out for 10 minutes, and a global limit applies too.
+- Sessions last 12 hours and live in memory. The cookie is `HttpOnly` and `SameSite=Strict`, and it is `Secure` when served over https.
+- There is no owner in hosted mode. Nobody can change your settings, toggle research or delete knowledge.
+- Your saved and environment keys are never exposed. Each visitor supplies their own key to use a stronger model. Their keys are kept in memory for their session only and are never written to disk. Visitors cannot point providers at localhost or private addresses.
+- With no password configured, remote requests get a 503.
+
+Set the password in `data\access-password.txt`, or with `STUDIO_ACCESS_PASSWORD`. A file change takes effect without a restart. Pick a long, unguessable password and do not commit it.
+
+Quick tunnel links are random and temporary, and your PC must stay on. A permanent link needs a domain on Cloudflare.
+
+## Configuration
+
+| Variable | Purpose |
+| --- | --- |
+| `PORT` | Dashboard port. Default `3000`. |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | Use an OpenAI-compatible provider. |
+| `OLLAMA_HOST` | Address of the Ollama server. |
+| `STUDIO_OLLAMA` | Choose the local Ollama model. |
+| `STUDIO_BLUEPRINTS` | `always` forces the blueprint route, `off` disables it. By default it is on for keyless models. |
+| `GODOT_PATH` | Path to a Godot executable for the Godot route. |
+| `STUDIO_SETTINGS_PATH` | Where settings are stored. |
+| `STUDIO_HOSTED` | `1` turns on hosted mode (no owner). |
+| `STUDIO_ACCESS_PASSWORD`, `STUDIO_ACCESS_FILE` | Password for remote access, or a file that holds it. |
+
+## HTTP API
+
+Used by the dashboard.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/status` | Server and model status. |
+| `POST /api/run` | Run a sprint and build a game from a brief. |
+| `POST /api/demo-run` | Run a scripted sprint without a model. |
+| `GET /api/projects` | List projects. |
+| `GET /api/projects/:id/download` | Download a project as a zip. |
+| `/api/projects/:id/tasks/:task` | Edit a task. |
+| `POST /api/projects/:id/tasks/:task/run` | Run a task with the agents. |
+| `GET /api/memory` | Lessons carried between sprints. |
+| `/api/research` | Research status. Changing it is owner only. |
+| `/api/knowledge` | Study notes. Deleting is owner only. |
+| `POST /api/settings/models` | Choose models. |
+| `POST` or `DELETE /api/settings/key` | Save or remove an API key. |
+
+## Project layout
+
+| Path | Role |
+| --- | --- |
+| `server.js` | HTTP server, routing and static files. |
+| `access.js` | Password gate, sessions, rate limiting, hosted mode. |
+| `settings.js` | Models and keys, with per-visitor settings. |
+| `llm.js` | Model calls with retry and provider pooling. |
+| `studio.js`, `local-studio.js`, `demo-studio.js` | Sprint orchestration (live, local and scripted). |
+| `game-generator.js` | The browser-game pipeline. |
+| `studio-blueprints.js`, `blueprint-router.js`, `blueprint-harness.js` | Blueprint games, routing and test harness. |
+| `studio-engine.js`, `studio-kit.js` | Browser toolkit used by generated games. |
+| `module-sanitizer.js` | Deterministic fixes for generated modules. |
+| `godot-generator.js`, `godot-runner.js` | The Godot route. |
+| `task-patcher.js` | Edits existing projects task by task. |
+| `project-builder.js`, `project-zip.js` | Project files and the zip writer (no dependencies). |
+| `memory-store.js` | Carried lessons. |
+| `knowledge.js`, `curriculum.js`, `research.js`, `research-daemon.js`, `seed-knowledge.json` | Learning system. |
+| `public/` | Dashboard (`index.html`, `app.js`, `styles.css`, `curl-import.js`). |
+| `*.test.js` | Tests, next to the code they cover. |
+| `make-release.ps1`, `make-hosted.ps1`, `build-desktop.ps1` | Packaging scripts. |
+
+## Building releases
+
+All scripts are PowerShell and build from the working tree.
+
+- `make-release.ps1` writes `dist\Traumatic-Studios-Windows.zip`. It scans for secrets first, using your saved keys and passwords, and stops if it finds one.
+- `make-hosted.ps1` builds the hosted folder on your Desktop.
+- `build-desktop.ps1` builds the local desktop copy.
+
+To publish, attach the zip to a GitHub release, for example with `gh release create`.
+
+## Testing
+
+```
 npm test
 ```
 
-## Blueprints and module sanitizer (keyless builds)
+This runs every `*.test.js` file with Node's built-in test runner. No network or model is needed, because tests mock `fetch`.
 
-When running on the free keyless models, the generator first asks the model for a small JSON spec and runs it on pre-tested templates in `studio-blueprints.js` (top-down adventure, platformer, arena survivor). Ideas that fit none of them (puzzle, cards, racing, classics, etc.) fall back to freeform module generation, where `module-sanitizer.js` deterministically strips `export` statements and fixes invented `Kit`/`Engine` names. Set `STUDIO_BLUEPRINTS=always` or `off` to override.
+## Known limits
 
-## Sharing with friends (password + own keys)
+- Blueprints cover adventure, platformer and arena. Other genres use the freeform route, which is slower and less reliable on small models.
+- Blueprint games are less bespoke than freeform output.
+- Small local models struggle with long code. A larger Ollama model or your own API key helps a lot.
+- The studio kit has not been shown to improve results with every model.
+- Windows is the supported platform for the packaged release.
 
-Run `cloudflared tunnel --url http://localhost:3000`. Visitors through the tunnel must sign in with the password in `data\access-password.txt` (or `STUDIO_ACCESS_PASSWORD`; 8+ characters; with none set, remote access is refused). You, on localhost, are never asked. Visitors get their own in-memory AI connection: your saved and environment keys are never used for them, and keys they enter are never written to disk. They can add their own key for stronger models. Only the owner can toggle research or delete knowledge.
+## License
 
-Each project card has a **Download** button (a .zip with index.html, game.js, game.css and a README; Godot projects include web/ and godot/). Owner and signed-in friends can use it.
-
-## Hosted build
-
-Run `powershell -File make-hosted.ps1` to create `Desktop\Traumatic Studios Hosted`: code and a Node runtime only, with `STUDIO_HOSTED=1` (no owner, password for everyone, owner keys and settings disabled, no background research, knowledge read-only). Set the password in its `data\access-password.txt` and run `START HOSTED.bat`.
+MIT. See [LICENSE](LICENSE).
