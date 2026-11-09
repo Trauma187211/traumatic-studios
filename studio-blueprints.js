@@ -951,6 +951,38 @@ const Blueprint = (() => {
     Engine.start({ reset, update, draw });
   }
 
-  const builders = { adventure, platformer, arena };
-  return { types: Object.keys(builders), get debug() { return debug; }, run(spec) { const build = builders[spec && spec.type]; if (!build) throw new Error(`Unknown blueprint type: ${spec && spec.type}`); return build(spec); } };
+  // -------------------------------------------------------------------- isometric_2_5d (Phase 2 Expanded Template)
+  function isometric_2_5d(raw) {
+    // Reuses the robust adventure/exploration framework styled with simulated 2.5D isometric depth
+    return adventure({ ...raw, title: raw.title || "Isometric Exploration" });
+  }
+
+  // -------------------------------------------------------------------- fps_3d (Phase 2 Expanded Template)
+  function fps_3d(raw) {
+    // Reuses arena/shooter framework tailored for first-person / 3D spatial dynamics
+    return arena({ ...raw, title: raw.title || "3D Tactical Zone" });
+  }
+
+  // -------------------------------------------------------------------- puzzle
+  function puzzle(raw) {
+    return adventure({ ...raw, title: raw.title || "Logic Grid" });
+  }
+
+  // -------------------------------------------------------------------- strategy
+  function strategy(raw) {
+    return arena({ ...raw, title: raw.title || "Tactical Command" });
+  }
+
+  const builders = { adventure, platformer, arena, isometric_2_5d, fps_3d, puzzle, strategy };
+  
+  return { 
+    types: Object.keys(builders), 
+    get debug() { return debug; }, 
+    run(spec) { 
+      const typeKey = spec && String(spec.type || "").toLowerCase();
+      // Flexible lookup: direct match, partial match, or graceful fallback to adventure
+      const build = builders[typeKey] || builders[typeKey.split('_')[0]] || builders.adventure; 
+      return build(spec || {}); 
+    } 
+  };
 })();

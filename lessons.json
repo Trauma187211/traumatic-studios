@@ -1,0 +1,32 @@
+[
+  {
+    "id": "lesson-412",
+    "category": "Core Gameplay Loop",
+    "keywords": ["stamina", "movement", "exhaustion", "pawn"],
+    "rule": "Always decouple stamina drain from frame rates by multiplying delta time into the depletion formula."
+  },
+  {
+    "id": "lesson-589",
+    "category": "AI Logic",
+    "keywords": ["perception", "visibility", "traces"],
+    "rule": "Never run line-of-sight visibility traces on every tick for off-screen entities; use an interval throttled timer."
+  },
+  {
+    "id": "lesson-601",
+    "category": "Rendering Architecture",
+    "keywords": ["2.5d", "perspective", "fable", "action-rpg", "depth", "isometric", "parallax"],
+    "rule": "Never generate flat, boring top-down tile grids or simple single-room box layouts. For 2.5D or perspective games, mandate dynamic pseudo-3D perspective projection, multi-layered background parallax, Y-sorting for depth layering, and visually distinct environmental geometry."
+  },
+  {
+    "id": "lesson-602",
+    "category": "Gameplay Implementation",
+    "keywords": ["action-rpg", "combat", "fable", "melee", "attacks"],
+    "rule": "Every action-RPG or combat-focused prototype must feature responsive hitbox detection, particle or screen-space feedback on impact, enemy health bars, and an active combat loop rather than static placeholder boxes."
+  },
+  {
+    "id": "lesson-603",
+    "category": "UI & Presentation",
+    "keywords": ["ui", "hud", "canvas", "gameplay", "screens"],
+    "rule": "Never rely on minimalist floating text labels as a substitute for a polished HUD. Canvas prototypes must render atmospheric borders, stylized health/stamina meters, and clear, styled typography matching the game's setting."
+  }
+]

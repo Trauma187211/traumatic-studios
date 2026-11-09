@@ -1,4 +1,5 @@
 const fs = require("node:fs/promises");
+const syncFs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { randomUUID } = require("node:crypto");
@@ -14,19 +15,95 @@ const REQUIRED_FILES = ["index.html", "game.js", "game.css"];
 const TASK_OWNERS = new Set(["Game designer", "Gameplay engineer", "QA tester", "Producer"]);
 const runningProjects = new Set();
 
+// Inline Lesson Engine / Expanded RAG Lookup (Max 10 lessons scored across keywords, categories & rules)
+function getRelevantLessons(briefText, maxLessons = 10) {
+  try {
+    const filePath = path.join(__dirname, "lessons.json");
+    if (!syncFs.existsSync(filePath)) return [];
+    
+    const lessons = JSON.parse(syncFs.readFileSync(filePath, "utf8"));
+    const textLower = briefText.toLowerCase();
+    const briefTokens = new Set(textLower.split(/\W+/).filter((t) => t.length > 2));
+
+    const scored = lessons.map((lesson) => {
+      let score = 0;
+      const keywords = lesson.keywords || [];
+      for (const keyword of keywords) {
+        const kwLower = keyword.toLowerCase();
+        if (textLower.includes(kwLower)) {
+          score += 3;
+        }
+      }
+
+      if (lesson.category && textLower.includes(lesson.category.toLowerCase())) {
+        score += 2;
+      }
+
+      const ruleText = (lesson.rule || lesson.description || "").toLowerCase();
+      for (const token of briefTokens) {
+        if (ruleText.includes(token)) {
+          score += 0.5;
+        }
+      }
+
+      return { lesson, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    
+    const selected = scored.filter((s) => s.score > 0).slice(0, maxLessons);
+    if (selected.length === 0) {
+      return lessons.slice(0, maxLessons).map((l) => l.lesson);
+    }
+
+    return selected.map((s) => s.lesson);
+  } catch (error) {
+    console.error("Failed to load lessons.json:", error);
+    return [];
+  }
+}
+
 async function askForProject(brief, handoff) {
+  const matchedLessons = getRelevantLessons(brief, 10);
+  const lessonText = matchedLessons.length > 0
+    ? matchedLessons.map((l, i) => `[Rule ${i + 1} (${l.category || "General"}): ${l.rule || l.description || JSON.stringify(l)}]`).join("\n")
+    : "No specific lessons matched.";
+
   const response = await llmFetch({
     body: JSON.stringify({
       model: getModel(),
-      temperature: 0.4,
+      temperature: 0.8,
       messages: [
         {
           role: "system",
-          content: "You are the gameplay engineer at Traumatic Studios. Build a small playable browser prototype with plain HTML, CSS and JavaScript. Return only a JSON object with string fields indexHtml, gameJs, gameCss and a tasks array of 3 to 5 objects with title, owner and description. Owners must be exactly Game designer, Gameplay engineer, QA tester, or Producer. NON-NEGOTIABLE: put all JavaScript in gameJs and all CSS in gameCss; indexHtml must load them as local ./game.js and ./game.css files, with no inline scripts or styles. Do not use external assets, external URLs, network requests, imports, storage, forms or third-party libraries. Make the core interaction playable with keyboard and pointer, and include a restart/reset path. Keep the code concise and self-contained.",
+          content: `You are the lead gameplay engineer at Traumatic Studios. Build a custom, fully playable browser prototype on an HTML5 Canvas based on the user's precise project brief, architecture specs, and stylistic parameters.
+
+MANDATORY STUDIO RULES & LEARNED LESSONS (You MUST strictly follow these rules derived from studio research):
+${lessonText}
+
+MANDATORY RENDERING & GEOMETRY STANDARDS (Enforce on every build):
+1. NO FLAT BOX GRIDS: Never generate simplistic top-down tile grids, single-room box arenas, or solitary square player placeholders.
+2. 2.5D / ISOMETRIC MATH: For any 2.5D or perspective brief, code must implement proper isometric/oblique projection formulas (e.g., projecting screen coordinates as \`screenX = (x - y) * tileWidth\`, \`screenY = (x + y) * tileHeight / 2\`) with dynamic Y-sorting so entities layer correctly behind and in front of objects based on their vertical screen position.
+3. VECTOR ART & DETAILS: Because external assets are banned, code must programmatically draw rich, multi-layered vector graphics using canvas paths, gradients, shadows (\`shadowBlur\`, \`shadowColor\`), and procedural particle effects for lighting, foliage, structures, and characters.
+4. ATMOSPHERIC UI: Render a fully styled HUD directly onto the canvas with custom fonts, gradient health/stamina meters, and styled borders rather than minimalist floating text.
+
+CRITICAL INSTRUCTIONS:
+1. Unlimited Creative Scope & Zero Bias: Do NOT restrict yourself to any predefined genres, perspectives, or layouts (such as isometric, top-down, or side-scroller). Fully adapt to whatever perspective, dimension model (2D, 2.5D, 3D orthographic, vertical-stack, gridless, multi-tiered), thematic tone, or unique gameplay loop the user requests.
+2. Historical Knowledge & Memory Synthesis: Deeply cross-reference all prior studio patterns, past project lessons, iterative learnings, and accumulated structural insights to produce an advanced, highly polished, and functionally complete implementation that perfectly matches the user's prompt.
+3. Code Structure: Return only a JSON object with string fields indexHtml, gameJs, gameCss and a tasks array of 3 to 5 objects with title, owner and description.
+4. Owners must be exactly: Game designer, Gameplay engineer, QA tester, or Producer.
+5. Constraints: Put all JavaScript in gameJs and all CSS in gameCss; indexHtml must load them as local ./game.js and ./game.css files, with no inline scripts or styles. No external assets, network requests, imports, or third-party libraries.
+6. Make the core interaction fully playable with keyboard/pointer, include proper win/loss states, and a restart path.
+
+CRITICAL GODOT 4 GDSCRIPT COMPLIANCE RULES (if generating Godot modules):
+1. EXPORT ANNOTATIONS: NEVER use legacy Godot 3 "export var". ALWAYS use Godot 4 "@export" annotations (e.g., @export var speed: float = 100.0).
+2. ONREADY ANNOTATIONS: NEVER use raw "onready var". ALWAYS use "@onready var" (e.g., @onready var sprite = $Sprite2D).
+3. SIGNALS: Use Godot 4 signal syntax (e.g., signal player_damaged(amount) and player_damaged.emit(10)).
+4. LOCAL PATHS: Keep all resource references strictly inside "res://scripts/", "res://scenes/", or "res://data/".`,
         },
         {
           role: "user",
-          content: `Project brief:\n${brief}\n\nApproved team handoff:\n${handoff}\n\nCreate the first playable version and a short follow-up task board.`,
+          content: `Project brief & architectural spec:\n${brief}\n\nApproved team handoff:\n${handoff}\n\nSynthesize all past knowledge, review previous lessons, and build the ultimate custom playable version and a short follow-up task board matching this vision.`,
         },
       ],
       response_format: { type: "json_object" },
@@ -69,7 +146,6 @@ function validateProject(project) {
     throw new Error("Generated project exceeds the 300 KB total size limit.");
   }
 
-  // Models often inline scripts or use wrong paths; keep game logic in game.js and normalize the shell.
   let html = files["index.html"]
     .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
     .replace(/<script\b[^>]*\/?>/gi, "")
@@ -107,7 +183,6 @@ function validateProject(project) {
       && /\bsrc=["']\.\/game\.js["']/.test(found[0][0]);
   };
   if (!hasLocalAssets(files["index.html"])) {
-    // Last resort: rebuild a clean shell around whatever body content survived.
     const body = (/<body\b[^>]*>([\s\S]*?)(?:<\/body\s*>|$)/i.exec(project.indexHtml)?.[1] ?? "")
       .replace(/<!--[\s\S]*?-->/g, "")
       .replace(/<\/?(?:script|style|link|html|head|body)\b[^>]*>/gi, "");
@@ -544,8 +619,7 @@ async function readProjectSources(projectId, projectsDir = PROJECTS_DIR) {
 const README_WEB = "Traumatic Studios game\n\nHow to play: unzip this folder and double-click index.html.\n\nFiles: index.html (page), game.js (all game code, plain JavaScript), game.css (styles).\nEdit game.js in any text editor to change the game. To publish it, upload the unzipped files to any static host (itch.io, GitHub Pages, Netlify).\n";
 const README_GODOT = "Traumatic Studios game (Godot)\n\nweb/ is the browser build. It must be served over http, not opened from the file system:\n  - run `python -m http.server` (or `npx serve`) in this folder and open http://localhost:8000/index.html\n  - or upload the unzipped folder to itch.io / any static host.\ngodot/ is the editable Godot project: open it with Godot 4 (Import, then select godot/project.godot).\n";
 
-// Everything needed to play and edit a project, as a streamable ZIP. Throws ENOENT for unknown projects.
-async function projectArchive(projectId, projectsDir = PROJECTS_DIR) {
+async function projectIdentifier(projectId, projectsDir = PROJECTS_DIR) {
   if (!/^game-\d+-[a-f0-9]{8}$/.test(projectId)) throw Object.assign(new Error("Invalid project identifier."), { code: "ENOENT" });
   const directory = path.join(projectsDir, projectId);
   const metadata = JSON.parse(await fs.readFile(path.join(directory, "project.json"), "utf8"));
@@ -556,7 +630,7 @@ async function projectArchive(projectId, projectsDir = PROJECTS_DIR) {
 
 module.exports = {
   addTaskNote,
-  projectArchive,
+  projectArchive: projectIdentifier,
   saveProject,
   createPrototype,
   createDemoPrototype,
