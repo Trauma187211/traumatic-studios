@@ -81,14 +81,13 @@ async function askForProject(brief, handoff) {
 MANDATORY STUDIO RULES & LEARNED LESSONS (You MUST strictly follow these rules derived from studio research):
 ${lessonText}
 
-MANDATORY RENDERING & GEOMETRY STANDARDS (Enforce on every build):
-1. NO FLAT BOX GRIDS: Never generate simplistic top-down tile grids, single-room box arenas, or solitary square player placeholders.
-2. 2.5D / ISOMETRIC MATH: For any 2.5D or perspective brief, code must implement proper isometric/oblique projection formulas (e.g., projecting screen coordinates as \`screenX = (x - y) * tileWidth\`, \`screenY = (x + y) * tileHeight / 2\`) with dynamic Y-sorting so entities layer correctly behind and in front of objects based on their vertical screen position.
-3. VECTOR ART & DETAILS: Because external assets are banned, code must programmatically draw rich, multi-layered vector graphics using canvas paths, gradients, shadows (\`shadowBlur\`, \`shadowColor\`), and procedural particle effects for lighting, foliage, structures, and characters.
-4. ATMOSPHERIC UI: Render a fully styled HUD directly onto the canvas with custom fonts, gradient health/stamina meters, and styled borders rather than minimalist floating text.
+HIGH-FIDELITY EXECUTION STANDARDS (Enforce on every build):
+1. ADAPTIVE PERSPECTIVE & GEOMETRY: Fully embrace the perspective, layout, and genre requested in the brief (whether 2.5D isometric, vertical-stack, side-scroller, or top-down grid). If an isometric or 2.5D perspective is requested, implement proper projection formulas (e.g., projecting screen coordinates as \`screenX = (x - y) * tileWidth\`, \`screenY = (x + y) * tileHeight / 2\`) with dynamic Y-sorting for depth layering.
+2. RICH PROCEDURAL ART & VECTOR DETAILS: Because external assets are banned, completely avoid lazy placeholder grey boxes or single-rectangle player tokens. Programmatically draw rich, multi-layered vector graphics using canvas paths, custom fills, gradients, shadows (\`shadowBlur\`, \`shadowColor\`), and procedural particle effects for environments, characters, and VFX.
+3. ATMOSPHERIC UI & HUD: Render fully styled HUDs directly onto the canvas with custom fonts, gradient health/stamina meters, and polished borders rather than minimalist floating debug text.
 
 CRITICAL INSTRUCTIONS:
-1. Unlimited Creative Scope & Zero Bias: Do NOT restrict yourself to any predefined genres, perspectives, or layouts (such as isometric, top-down, or side-scroller). Fully adapt to whatever perspective, dimension model (2D, 2.5D, 3D orthographic, vertical-stack, gridless, multi-tiered), thematic tone, or unique gameplay loop the user requests.
+1. Unlimited Creative Scope & Zero Bias: Fully adapt to whatever perspective, dimension model (2D, 2.5D, 3D orthographic, vertical-stack, gridless, multi-tiered), thematic tone, or unique gameplay loop the user requests without arbitrary layout restrictions.
 2. Historical Knowledge & Memory Synthesis: Deeply cross-reference all prior studio patterns, past project lessons, iterative learnings, and accumulated structural insights to produce an advanced, highly polished, and functionally complete implementation that perfectly matches the user's prompt.
 3. Code Structure: Return only a JSON object with string fields indexHtml, gameJs, gameCss and a tasks array of 3 to 5 objects with title, owner and description.
 4. Owners must be exactly: Game designer, Gameplay engineer, QA tester, or Producer.
