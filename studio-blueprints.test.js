@@ -4,12 +4,21 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { smokeTest } = require("./game-generator");
 const { headless } = require("./blueprint-harness");
+const { loadReferences, pickReferences, formatReferences } = require("./design-references");
 
 const engine = fs.readFileSync(path.join(__dirname, "studio-engine.js"), "utf8");
 const kit = fs.readFileSync(path.join(__dirname, "studio-kit.js"), "utf8");
 const blueprint = fs.readFileSync(path.join(__dirname, "studio-blueprints.js"), "utf8");
 const build = (spec) => `${engine}\n${kit}\n${blueprint}\nBlueprint.run(${JSON.stringify(spec)});\n`;
 const canvas = { width: 800, height: 560 };
+
+test("optional system references cover more genres and contribute distinct design patterns", () => {
+  const cards = loadReferences();
+  for (const id of ["system-quest-state", "system-survival-shelter", "system-world-region", "system-colony-economy", "system-tactical-combat"]) assert.ok(cards.some((card) => card.id === id));
+  const picked = pickReferences("3D open world survival crafting shelter", { cards, rng: () => 0 });
+  assert.ok(picked.some((card) => card.id === "system-survival-shelter"));
+  assert.match(formatReferences(picked), /recipe dependency graph|region graph/);
+});
 
 const SPECS = {
   adventure: { type: "adventure", title: "Ember Vault", theme: "desert", weapon: "bow", floors: 2, enemies: [{ name: "Scarab", behavior: "charger" }, { name: "Mummy", behavior: "chase", hp: 3 }, { name: "Archer", behavior: "shooter" }], boss: { name: "Pharaoh", hp: 10 }, intro: ["Find the key."] },

@@ -201,28 +201,31 @@ async function checkStatus() {
   }
 }
 
-function renderMemory(learnings) {
-  memoryList.replaceChildren();
-  memoryEmpty.hidden = learnings.length > 0;
-  for (const item of learnings) {
-    const entry = document.createElement("li");
-    entry.textContent = item.lesson;
-    memoryList.append(entry);
-  }
-}
-
-async function loadMemory() {
+let memoryOffset = 0;
+async function loadMemory({ append = false } = {}) {
   try {
-    const response = await fetch("/api/memory");
+    if (!append) memoryOffset = 0;
+    const response = await fetch(`/api/memory?offset=${memoryOffset}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not load studio memory.");
-    renderMemory(result.learnings);
+    if (!append) memoryList.replaceChildren();
+    memoryEmpty.hidden = result.total > 0;
+    for (const item of result.learnings) {
+      const entry = document.createElement("li");
+      entry.textContent = item.lesson;
+      memoryList.append(entry);
+    }
+    memoryOffset += result.learnings.length;
+    document.querySelector("#memory-more").hidden = memoryOffset >= result.total;
+    memoryError.hidden = true;
   } catch (error) {
     memoryEmpty.hidden = true;
     memoryError.textContent = `Studio memory unavailable: ${error.message}`;
     memoryError.hidden = false;
   }
 }
+
+document.querySelector("#memory-more").addEventListener("click", () => loadMemory({ append: true }));
 
 function renderProjects(projects) {
   projectList.replaceChildren();
@@ -246,8 +249,8 @@ function renderProjects(projects) {
     const heading = document.createElement("div");
     heading.className = "project-card-heading";
     const title = document.createElement("h3");
-    title.textContent = `${project.mode === "demo" ? "Offline demo build" : "Playable prototype"} · ${new Date(project.createdAt).toLocaleString()}`;
     const openLink = document.createElement("a");
+    title.textContent = `${project.title || "Playable prototype"}${project.revision > 1 ? ` · Revision ${project.revision}` : ""}${project.fallback ? " · Starter fallback" : ""} · ${new Date(project.createdAt).toLocaleString()}`;
     openLink.href = project.previewUrl;
     openLink.target = "_blank";
     openLink.rel = "noopener";
@@ -271,6 +274,46 @@ function renderProjects(projects) {
     preview.title = "Sandboxed playable game prototype";
     preview.loading = "lazy";
     preview.setAttribute("sandbox", "allow-scripts");
+
+    const quality = document.createElement("section");
+    quality.className = "project-feedback";
+    const feedbackLabel = document.createElement("span");
+    feedbackLabel.textContent = "Does this build fit your prompt?";
+    quality.append(feedbackLabel);
+    for (const [rating, label] of [[1, "Yes"], [-1, "Needs work"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "feedback-button";
+      button.dataset.projectId = project.id;
+      button.dataset.rating = String(rating);
+      button.textContent = label;
+      quality.append(button);
+    }
+    if (project.feedbackGiven) {
+      quality.querySelectorAll("button").forEach((button) => { button.disabled = true; button.hidden = true; });
+      feedbackLabel.textContent = "Thanks — your build feedback was recorded.";
+    }
+    if (project.knowledgeUsed?.length) {
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = `WHY THESE LESSONS (${project.knowledgeUsed.length})`;
+      details.append(summary);
+      const list = document.createElement("ul");
+      for (const lesson of project.knowledgeUsed) {
+        const row = document.createElement("li");
+        const text = document.createElement("span");
+        text.textContent = `${lesson.topic || "Studio lesson"}: ${lesson.reason || "Matched this build."} `;
+        const source = document.createElement("a");
+        source.href = lesson.source;
+        source.target = "_blank";
+        source.rel = "noopener noreferrer";
+        source.textContent = `${lesson.sourceTier || "source"} · ${Math.round((lesson.sourceQuality || 0) * 100)}%`;
+        row.append(text, source);
+        list.append(row);
+      }
+      details.append(list);
+      quality.append(details);
+    }
 
     const taskHeading = document.createElement("h4");
     taskHeading.className = "task-heading";
@@ -317,11 +360,102 @@ function renderProjects(projects) {
       }
       tasks.append(item);
     }
-    card.append(heading, preview, taskHeading, tasks);
+    const conversation = document.createElement("section");
+    conversation.className = "project-conversation";
+    const conversationHeading = document.createElement("h4");
+    conversationHeading.textContent = "CONTINUE WITH THE TEAM";
+    const transcript = document.createElement("ol");
+    transcript.className = "project-chat-history";
+    for (const turn of project.conversation || []) {
+      const row = document.createElement("li");
+      const speaker = document.createElement("strong");
+      speaker.textContent = turn.from || (turn.role === "user" ? "You" : "Studio team");
+      const words = document.createElement("p");
+      words.textContent = turn.text || "";
+      row.append(speaker, words);
+      transcript.append(row);
+    }
+    if (!transcript.childElementCount) {
+      const empty = document.createElement("p");
+      empty.className = "project-chat-empty";
+      empty.textContent = "Ask the team to change this build or suggest the next step. The current game and its history stay attached to the conversation.";
+      transcript.append(empty);
+    }
+    const chatForm = document.createElement("form");
+    chatForm.className = "project-chat-form";
+    chatForm.dataset.projectId = project.id;
+    const chatInput = document.createElement("textarea");
+    chatInput.className = "project-chat-input";
+    chatInput.name = "message";
+    chatInput.maxLength = 2000;
+    chatInput.rows = 2;
+    chatInput.required = true;
+    chatInput.minLength = 3;
+    chatInput.placeholder = "Tell the team what to improve, add, or discuss…";
+    chatInput.setAttribute("aria-label", "Message the team about this game");
+    const chatSend = document.createElement("button");
+    chatSend.type = "submit";
+    chatSend.textContent = !project.canContinue ? "Conversation unavailable for this build" : modelConfigured ? "Continue project" : "Connect AI to continue";
+    chatSend.disabled = !project.canContinue || !modelConfigured;
+    chatForm.append(chatInput, chatSend);
+    conversation.append(conversationHeading, transcript, chatForm);
+    card.append(heading, preview, quality, conversation, taskHeading, tasks);
     (index === 0 ? projectList : archivedProjects).append(card);
   }
   if (archive) projectList.append(archive);
 }
+
+projectList.addEventListener("submit", async (event) => {
+  const form = event.target.closest(".project-chat-form");
+  if (!form) return;
+  event.preventDefault();
+  const input = form.elements.message;
+  const button = form.querySelector('button[type="submit"]');
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "Talking with the team…";
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(form.dataset.projectId)}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: input.value.trim() }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "The team could not continue this project.");
+    projectNotices.set(result.projectId || form.dataset.projectId, result.reply);
+    await loadProjects();
+    const targetId = CSS.escape(result.projectId || form.dataset.projectId);
+    projectList.querySelector(`.project-chat-form[data-project-id="${targetId}"] .project-chat-input`)?.focus();
+  } catch (error) {
+    errorMessage.textContent = `Project conversation failed: ${error.message}`;
+    errorMessage.hidden = false;
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+});
+
+projectList.addEventListener("click", async (event) => {
+  const button = event.target.closest(".feedback-button");
+  if (!button || button.disabled) return;
+  const label = button.textContent;
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(button.dataset.projectId)}/feedback`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating: Number(button.dataset.rating) }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Feedback could not be saved.");
+    const row = button.parentElement;
+    row.querySelectorAll("button").forEach((item) => { item.disabled = true; item.hidden = true; });
+    row.querySelector("span").textContent = "Thanks — this will tune future lesson selection.";
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = label;
+    errorMessage.textContent = `Feedback was not saved: ${error.message}`;
+    errorMessage.hidden = false;
+  }
+});
 
 async function loadProjects() {
   try {
@@ -411,8 +545,7 @@ function handleEvent(event) {
     const phase = phaseForStage[event.stage];
     if (phase) completePhase(phase);
   } else if (event.type === "memory-updated") {
-    renderMemory(event.learnings);
-    memoryError.hidden = true;
+    loadMemory();
   } else if (event.type === "project-created") {
     loadProjects();
   } else if (event.type === "studio-completed") {
@@ -549,13 +682,19 @@ const learnList = document.querySelector("#learn-list");
 const learnTracks = document.querySelector("#learn-tracks");
 const learnDrill = document.querySelector("#learn-drill");
 const curriculumButton = document.querySelector("#curriculum-button");
+const learnSearch = document.querySelector("#learn-search");
+const learnMore = document.querySelector("#learn-more");
+let knowledgeOffset = 0;
+let knowledgeSearchTimer;
 
-async function loadKnowledge() {
+async function loadKnowledge({ append = false } = {}) {
   try {
-    const result = await (await fetch("/api/knowledge")).json();
+    if (!append) knowledgeOffset = 0;
+    const params = new URLSearchParams({ offset: String(knowledgeOffset), q: learnSearch.value.trim() });
+    const result = await (await fetch(`/api/knowledge?${params}`)).json();
     const report = result.report || {};
-    learnCount.textContent = result.total
-      ? `${result.total} LESSONS${report.asked ? ` · EXAM ${report.passed}/${report.asked}` : ""}`
+    learnCount.textContent = report.lessons
+      ? `${report.lessons} LESSONS${report.asked ? ` · EXAM ${report.passed}/${report.asked}` : ""}`
       : "NOTHING STUDIED YET";
     if (!learnTracks.children.length && result.tracks) {
       learnTracks.replaceChildren(...result.tracks.map((track) => {
@@ -569,7 +708,8 @@ async function loadKnowledge() {
         return label;
       }));
     }
-    learnList.replaceChildren(...result.items.map((item) => {
+    if (!append) learnList.replaceChildren();
+    learnList.append(...result.items.map((item) => {
       const entry = document.createElement("li");
       const text = document.createElement("span");
       text.textContent = `${item.topic ? `${item.topic}: ` : ""}${item.lesson}`;
@@ -577,7 +717,7 @@ async function loadKnowledge() {
       source.href = item.source;
       source.target = "_blank";
       source.rel = "noopener noreferrer";
-      source.textContent = item.title || item.source;
+      source.textContent = `${item.title || item.source} · ${item.sourceTier || "unrated source"} (${Math.round((item.sourceQuality ?? 0.45) * 100)}%)`;
       const forget = document.createElement("button");
       forget.type = "button";
       forget.className = "learn-forget";
@@ -586,10 +726,19 @@ async function loadKnowledge() {
       entry.append(text, source, forget);
       return entry;
     }));
+    knowledgeOffset += result.items.length;
+    learnMore.hidden = knowledgeOffset >= result.matching;
+    learnMore.textContent = `Load more lessons (${Math.max(0, result.matching - knowledgeOffset)} remaining)`;
   } catch {
     learnCount.textContent = "UNAVAILABLE";
   }
 }
+
+learnMore.addEventListener("click", () => loadKnowledge({ append: true }));
+learnSearch.addEventListener("input", () => {
+  clearTimeout(knowledgeSearchTimer);
+  knowledgeSearchTimer = setTimeout(() => loadKnowledge(), 250);
+});
 
 learnList.addEventListener("click", async (event) => {
   const button = event.target.closest(".learn-forget");
@@ -654,7 +803,8 @@ async function refreshResearch() {
     const info = await (await fetch("/api/research")).json();
     researchEnabled = info.enabled;
     researchState.textContent = !info.enabled ? "PAUSED" : info.busy ? "YIELDING TO A BUILD" : "WORKING IN THE BACKGROUND";
-    researchLast.textContent = `${info.pages} pages studied, ${info.lessons} lessons gained, ${info.today}/${info.dailyCap} today, ${info.queued} queued, ${info.curriculumLeft} curriculum pages left. Latest: ${info.lastMessage}`;
+    const tiers = Object.entries(info.knowledge?.sourceTiers || {}).map(([tier, count]) => `${tier}: ${count}`).join(" · ");
+    researchLast.textContent = `${info.pages} pages studied, ${info.lessons} lessons gained, ${info.today} studied today, ${info.queued} queued, ${info.curriculumLeft} curriculum pages left. Sources: ${info.knowledge?.sources || 0} · ${tiers || "No source ratings yet"}. Latest: ${info.lastMessage}`;
     researchToggle.textContent = info.enabled ? "Pause research" : "Resume research";
   } catch {
     researchState.textContent = "UNAVAILABLE";
@@ -670,7 +820,7 @@ checkStatus();
 loadMemory();
 loadKnowledge();
 refreshResearch();
-setInterval(() => { refreshResearch(); loadKnowledge(); }, 15000);
+setInterval(refreshResearch, 15000);
 
 function showKeyMessage(text, isError) {
   keyMessage.textContent = text;

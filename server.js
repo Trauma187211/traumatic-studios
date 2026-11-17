@@ -1,13 +1,13 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
-const { runStudio } = require("./studio");
+const { runStudio, runProjectConversation } = require("./studio");
 const { runDemoStudio } = require("./demo-studio");
 const { runLocalStudio, runLocalTask } = require("./local-studio");
 const { clearApiKey, enableKeylessDefault, getPublicStatus, isConfigured, listModels, PROVIDERS, runAsVisitor, setApiKey } = require("./settings");
 const { authorize, hosted } = require("./access");
 const { readLearnings } = require("./memory-store");
-const { learnFromLinks, listKnowledge, knowledgeReport, removeKnowledge, installSeed } = require("./knowledge");
+const { learnFromLinks, listKnowledgePage, knowledgeReport, removeKnowledge, installSeed, recordBuildFeedback } = require("./knowledge");
 const research = require("./research");
 const { publicTracks, trackUrls } = require("./curriculum");
 const { withNotices } = require("./llm");
@@ -103,6 +103,43 @@ async function handle(request, response) {
     return;
   }
 
+  const projectChatRoute = request.method === "POST" && request.url.split("?")[0].match(/^\/api\/projects\/([^/]+)\/chat$/);
+  if (projectChatRoute) {
+    try {
+      if (!isConfigured()) {
+        sendJson(response, 400, { error: "Connect an AI provider to continue working with the team on this project." });
+        return;
+      }
+      const payload = await readJson(request);
+      const result = await runProjectConversation(projectChatRoute[1], payload && payload.message);
+      sendJson(response, 200, result);
+    } catch (error) {
+      sendJson(response, /Invalid project|does not have the design notes|not have the design notes/i.test(error.message) ? 404 : 400, { error: error.message });
+    }
+    return;
+  }
+
+  const feedbackRoute = request.method === "POST" && request.url.split("?")[0].match(/^\/api\/projects\/([^/]+)\/feedback$/);
+  if (feedbackRoute) {
+    try {
+      const origin = request.headers.origin;
+      if (origin && new URL(origin).host !== request.headers.host) {
+        sendJson(response, 403, { error: "Cross-origin requests cannot submit build feedback." });
+        return;
+      }
+      const payload = await readJson(request);
+      const projectId = feedbackRoute[1];
+      if (!/^game-\d+-[a-f0-9]{8}$/.test(projectId)) throw new Error("Invalid project identifier.");
+      const recordPath = path.join(__dirname, "projects", projectId, "studio-design.json");
+      const design = JSON.parse(await fs.promises.readFile(recordPath, "utf8"));
+      const event = recordBuildFeedback({ projectId, lessonIds: (design.knowledgeUsed || []).map((item) => item.id), rating: Number(payload?.rating), comment: payload?.comment, source: "player" });
+      sendJson(response, 200, { saved: true, lessonCount: event.lessonIds.length });
+    } catch (error) {
+      sendJson(response, /ENOENT/.test(error.code || "") ? 404 : 400, { error: error.message });
+    }
+    return;
+  }
+
   const downloadRoute = request.method === "GET" && request.url.split("?")[0].match(/^\/api\/projects\/([^/]+)\/download$/);
   if (downloadRoute) {
     let archive;
@@ -164,7 +201,8 @@ async function handle(request, response) {
     }
   }
 
-  const knowledgeRoute = request.url.match(/^\/api\/knowledge(?:\/([\w-]{1,40}))?$/);
+  const knowledgeUrl = new URL(request.url, "http://localhost");
+  const knowledgeRoute = knowledgeUrl.pathname.match(/^\/api\/knowledge(?:\/([\w-]{1,40}))?$/);
   if (knowledgeRoute) {
     const origin = request.headers.origin;
     if (request.method !== "GET" && origin && new URL(origin).host !== request.headers.host) {
@@ -172,8 +210,11 @@ async function handle(request, response) {
       return;
     }
     if (request.method === "GET" && !knowledgeRoute[1]) {
-      const items = listKnowledge();
-      sendJson(response, 200, { total: items.length, report: knowledgeReport(), tracks: publicTracks(), items: items.slice(0, 200).map(({ id, topic, lesson, source, title }) => ({ id, topic, lesson, source, title })) });
+      const offset = Math.max(0, Number.parseInt(knowledgeUrl.searchParams.get("offset"), 10) || 0);
+      const query = knowledgeUrl.searchParams.get("q") || "";
+      const report = knowledgeReport();
+      const page = listKnowledgePage({ offset, limit: 50, query });
+      sendJson(response, 200, { total: report.lessons, matching: page.total, offset, report, tracks: publicTracks(), items: page.items.map(({ id, topic, lesson, source, title, sourceQuality, sourceTier }) => ({ id, topic, lesson, source, title, sourceQuality, sourceTier })) });
       return;
     }
     if (request.method === "DELETE" && knowledgeRoute[1]) {
@@ -197,7 +238,7 @@ async function handle(request, response) {
         ? trackUrls(payload.tracks.filter((value) => typeof value === "string"))
         : Array.isArray(payload?.urls) ? payload.urls.filter((value) => typeof value === "string") : [];
       const options = curriculum
-        ? { follow: false, skipKnown: true, drill: payload?.drill !== false, max: 70 }
+        ? { follow: false, skipKnown: true, drill: payload?.drill !== false }
         : { follow: payload?.follow !== false, drill: payload?.drill !== false };
       beginEventStream(response);
       try {
@@ -296,9 +337,12 @@ async function handle(request, response) {
     return;
   }
 
-  if (request.method === "GET" && request.url === "/api/memory") {
+  if (request.method === "GET" && new URL(request.url, "http://localhost").pathname === "/api/memory") {
     try {
-      sendJson(response, 200, { learnings: await readLearnings() });
+      const url = new URL(request.url, "http://localhost");
+      const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset"), 10) || 0);
+      const learnings = await readLearnings();
+      sendJson(response, 200, { total: learnings.length, offset, learnings: learnings.slice(offset, offset + 50) });
     } catch (error) {
       sendJson(response, 500, { error: error.message });
     }

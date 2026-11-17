@@ -36,7 +36,7 @@ test("the keyless default only applies when switched on and nothing else is set"
 test("research studies a curriculum page, yields to builds and respects the pause switch", async () => {
   const original = global.fetch;
   global.fetch = async (target, options = {}) => {
-    if (String(target).endsWith("/chat/completions")) return chatReply({ title: "T", lessons: [{ topic: "Timing", tags: ["general"], lesson: "Run the simulation on a fixed time step with an accumulator for stable physics." }] });
+    if (String(target).endsWith("/chat/completions")) return chatReply({ title: "T", relevant: true, lessons: [{ topic: "Timing", tags: ["general"], lesson: "Run the simulation on a fixed time step with an accumulator for stable physics." }] });
     return new Response(`<title>Loop</title><p>${"The game loop processes input, updates the world and renders. ".repeat(20)}</p>`, { status: 200, headers: { "content-type": "text/html" } });
   };
   try {
@@ -60,10 +60,9 @@ test("a provider outage does not burn the page; it is retried later", async () =
     return new Response(`<title>Loop</title><p>${"Spatial hashing buckets objects by grid cell. ".repeat(20)}</p>`, { status: 200, headers: { "content-type": "text/html" } });
   };
   try {
-    const before = JSON.parse(fs.readFileSync(process.env.STUDIO_RESEARCH_PATH, "utf8")).tried.length;
+    const before = research.historySnapshot().tried.length;
     await assert.rejects(research.step(), /busy/);
-    const after = JSON.parse(fs.readFileSync(process.env.STUDIO_RESEARCH_PATH, "utf8"));
-    assert.equal(after.tried.length, before);
+    assert.equal(research.historySnapshot().tried.length, before);
   } finally {
     global.fetch = original;
   }
@@ -76,8 +75,8 @@ test("when nothing is left it researches new topics on its own and queues good s
     if (url.endsWith("/chat/completions")) {
       const system = JSON.parse(options.body).messages[0].content;
       if (/research director/.test(system)) return chatReply({ topics: [{ query: "enemy steering behaviors", tag: "gamedev" }] });
-      if (/choose which web pages/.test(system)) return chatReply({ pick: [0] });
-      return chatReply({ title: "T", lessons: [] });
+      if (/choose every web page/.test(system)) return chatReply({ pick: [0] });
+      return chatReply({ title: "T", relevant: true, lessons: [] });
     }
     if (url.includes("wikipedia.org/w/api.php")) return new Response(JSON.stringify(["q", ["Steering behaviors"], [""], ["https://en.wikipedia.org/wiki/Steering_behaviors"]]), { status: 200 });
     if (url.includes("hn.algolia.com")) return new Response(JSON.stringify({ hits: [{ title: "Cool news", url: null }] }), { status: 200 });
@@ -89,9 +88,8 @@ test("when nothing is left it researches new topics on its own and queues good s
     state.tried = require("./curriculum").trackUrls();
     fs.writeFileSync(process.env.STUDIO_RESEARCH_PATH, JSON.stringify(state));
     await research.step();
-    const after = JSON.parse(fs.readFileSync(process.env.STUDIO_RESEARCH_PATH, "utf8"));
-    assert.ok(after.topics.includes("enemy steering behaviors"));
-    assert.ok(after.tried.includes("https://en.wikipedia.org/wiki/Steering_behaviors"));
+    assert.ok(research.historySnapshot().topics.includes("enemy steering behaviors"));
+    assert.ok(research.historySnapshot().tried.includes("https://en.wikipedia.org/wiki/Steering_behaviors"));
   } finally {
     global.fetch = original;
   }

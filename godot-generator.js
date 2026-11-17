@@ -173,7 +173,7 @@ async function designGame(brief, handoff, references, knowledge) {
     knowledge ? `Studio lessons:\n${clip(knowledge, 2500)}` : "",
     `Reference blueprints (inspiration only; combine, bend or ignore them, and never copy one wholesale):\n${formatReferences(references)}`,
     'Choose "2d" or "3d" for the idea (use "3d" for first-person, third-person, flight, racing, or when the brief asks for 3D or isometric 2.5D). Do not default to a generic arcade game.',
-    'Return JSON with: "title", "genre", "dimension" ("2d"|"3d"), "pitch", "canvas" {"width","height"}, "palette" {"bg","panel","accent","text","danger"} as #rrggbb, "controls" (up to 6 short strings), "modules" (3 to 6 objects {"name": lowercase_snake_case, "responsibility"} for supporting logic classes, plus one final module named "main" for scene setup, the loop, HUD and win/lose rules), "tasks" (3 to 5 objects {"title","owner","description"}, owner exactly one of Game designer, Gameplay engineer, QA tester, Producer).',
+    'Before coding, turn the brief into 4-8 concrete acceptance checks. Return them as "acceptance" (strings) alongside: "title", "genre", "dimension" ("2d"|"3d"), "pitch", "canvas" {"width","height"}, "palette" {"bg","panel","accent","text","danger"} as #rrggbb, "controls" (up to 6 short strings), "modules" (3 to 6 objects {"name": lowercase_snake_case, "responsibility"} for supporting logic classes, plus one final module named "main" for scene setup, the loop, HUD and win/lose rules), "tasks" (3 to 5 objects {"title","owner","description"}, owner exactly one of Game designer, Gameplay engineer, QA tester, Producer).',
   ].filter(Boolean).join("\n\n");
   return normalizeGodotDesign(tryParseJson(await chat([{ role: "system", content: system }, { role: "user", content: user }], { json: true, temperature: 0.8 })), brief);
 }
@@ -215,7 +215,8 @@ async function createGodotGame(brief, handoff, options = {}) {
   const log = (message, level = "info") => emit({ type: "log", level, message });
   const phase = (message) => emit({ type: "phase-started", phase: "build", message });
   let knowledge = "";
-  try { knowledge = String(require("./knowledge").relevantKnowledge(brief) || ""); } catch { /* study notes are optional */ }
+  let knowledgeUsed = [];
+  try { const library = require("./knowledge"); knowledgeUsed = library.retrieveKnowledge(`${brief}\n${handoff}`); knowledge = String(library.relevantKnowledge(`${brief}\n${handoff}`) || ""); } catch { /* study notes are optional */ }
 
   const references = pickReferences(`${brief}\n${handoff}`, { count: 3 });
   log(`Using references as inspiration only: ${references.map((r) => r.name).join(", ")}.`);
@@ -250,11 +251,13 @@ async function createGodotGame(brief, handoff, options = {}) {
     }
 
     const tasks = [...design.tasks];
+    let buildFaithful = null;
     try {
       const review = tryParseJson(await chat([
         { role: "system", content: 'You are a strict QA lead at Traumatic Studios. Compare the brief with the delivered scripts. Return only JSON: { "faithful": boolean, "missing": [short strings] }. Do not claim to have run anything.' },
-        { role: "user", content: `Brief:\n${brief}\n\nScripts:\n${clip(dump(files), 14000)}` },
+        { role: "user", content: `Brief:\n${brief}\n\nAcceptance checks:\n${(design.acceptance || []).join("; ")}\n\nScripts:\n${clip(dump(files), 14000)}` },
       ], { json: true, temperature: 0 }));
+      buildFaithful = review?.faithful === true;
       const missing = review && Array.isArray(review.missing) ? review.missing.map((m) => safeText(m, 90)).filter(Boolean) : [];
       if (review && review.faithful === false && missing.length) {
         log(`QA says the build is missing: ${missing.slice(0, 3).join("; ")}.`, "warn");
@@ -272,10 +275,12 @@ async function createGodotGame(brief, handoff, options = {}) {
     try {
       await fs.cp(outDir, path.join(root, "web"), { recursive: true });
       await fs.cp(projectDir, path.join(root, "godot"), { recursive: true, filter: (source) => !/[\\/]\.godot([\\/]|$)/.test(source) });
+      await fs.writeFile(path.join(root, "studio-design.json"), JSON.stringify({ version: 1, brief: clip(brief, 4000), design, fallback: false, knowledgeUsed: knowledgeUsed.map(({ id, topic, source, title, sourceTier, sourceQuality, reason }) => ({ id, topic, source, title, sourceTier, sourceQuality, reason })) }, null, 1), "utf8");
     } catch (error) {
       await fs.rm(root, { recursive: true, force: true });
       throw error;
     }
+    try { if (knowledgeUsed.length) require("./knowledge").recordBuildFeedback({ projectId: saved.id, lessonIds: knowledgeUsed.map((item) => item.id), rating: buildFaithful === false ? -1 : 1, source: "automated-godot-validation" }); } catch { /* advisory only */ }
     return { ...saved, title: design.title, genre: design.genre, dimension: design.dimension, engine: "godot" };
   } finally {
     await fs.rm(work, { recursive: true, force: true });

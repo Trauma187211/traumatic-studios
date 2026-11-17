@@ -8,12 +8,13 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const { getModel } = require("./settings");
+const { getModel, usingKeylessDefault } = require("./settings");
 const llm = require("./llm");
 const { validateProject, saveProject } = require("./project-builder");
 const { pickReferences, formatReferences } = require("./design-references");
 const { findNamedGames, extractTitles, formatNamedGames } = require("./named-games");
 const { smokeRun, smokeRunSync } = require("./studio-runtime/smoke");
+const blueprintRouter = require("./blueprint-router");
 
 const RUNTIME_DIR = path.join(__dirname, "studio-runtime");
 const readRuntime = (name) => fs.readFileSync(path.join(RUNTIME_DIR, name), "utf8");
@@ -151,6 +152,13 @@ function normalizeGameplay(raw, fallback) {
   return { mode: "director", view, goal, threat, player: { health: int(playerRaw.health, 1, 5, (base.player && base.player.health) || 3), shoots: shoots || goal.type === "defeat", jumps, builds } };
 }
 
+// The Director is deliberately small and generic. Promote briefs that describe
+// systemic games to custom generation so those mechanics are not flattened into
+// its collect/survive/shoot menu.
+function needsCustomGameplay(brief) {
+  return /\b(open[ -]world|survival rpg|role[ -]playing|craft(?:ing)?|harvest(?:ing)?|gather resources|resource management|dungeon crawler|dungeon|quest(?:s|ing)?|skill tree|tame(?:ing)?|build(?:ing)? (?:a |your )?(?:base|shelter)|farming|dialogue|npc(?:s)?|explor(?:ation|e))\b/i.test(String(brief || ""));
+}
+
 // The Director owns these jobs, so model modules with these names are not built in Director mode.
 const DIRECTOR_OWNS = new Set(["player", "controller", "control", "controls", "enemy", "enemies", "ai", "pickup", "pickups", "collectible", "collectibles", "lantern", "lanterns", "rules", "rule", "hud", "score", "scoring", "goal", "goals", "win", "lose", "objective", "objectives", "health", "combat", "weapon", "weapons", "threat", "threats", "hazard", "hazards", "spawner"]);
 const directorOwns = (name) => String(name).replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).some((t) => DIRECTOR_OWNS.has(t));
@@ -200,6 +208,7 @@ function normalizeDesign(raw, brief = "", options = {}) {
     width: int(d.canvas && d.canvas.width, 480, 1280, wide ? 960 : 800), height: int(d.canvas && d.canvas.height, 320, 800, wide ? 540 : 600),
     palette, controls: (Array.isArray(d.controls) ? d.controls : []).map((c) => safeText(c, 60)).filter(Boolean).slice(0, 6),
     gameplay,
+    acceptance: (Array.isArray(d.acceptance) ? d.acceptance : []).map((item) => safeText(item, 180)).filter(Boolean).slice(0, 8),
     modules: modules.length >= (gameplay.mode === "custom" ? 2 : 1) ? modules : DEFAULT_MODULES.map((m) => ({ ...m })), tasks,
   };
 }
@@ -238,14 +247,28 @@ async function designGame(brief, handoff, references, knowledge, forced, extra =
   const user = [
     `Project brief:\n${brief}`,
     `Approved team handoff:\n${clip(handoff, 5000)}`,
-    knowledge ? `Studio lessons:\n${clip(knowledge, 2500)}` : "",
-    extra.referenceNote ? `The user referred to specific games. Reproduce their core loop and feel as far as the gameplay menu below allows (not their art or story):\n${extra.referenceNote}` : "",
+    knowledge ? `Studio lessons (adapt techniques to the brief; these are not mandatory templates):\n${clip(knowledge, 3600)}` : "",
+    extra.referenceNote ? `The user referred to specific games as design references. Learn their useful mechanics and pacing, then adapt those ideas to the user's full brief. Do not let the reference override the requested genre or force the game into the arcade Director; never copy its world or layout.\n${extra.referenceNote}` : "",
     `Reference blueprints (inspiration only; combine, bend or ignore them, and never copy one wholesale):\n${formatReferences(references)}`,
     `Design a game that is faithful to the brief and not a generic catch-or-dodge arcade game. ${dimensionRule}`,
-    "The runtime has a tested Director that builds the whole game loop from your \"gameplay\" spec: objectives placed in the world, enemies, health, shooting, a compass, the HUD, and the win and lose conditions. You design the goal, the threat and the world; do not design the player controller, pickups, enemies, rules or HUD as modules. Stay on the brief: do not add unrelated mechanics (such as puzzles) that it does not ask for.",
-    'Return JSON with: "title" (string), "genre" (string), "dimension" ("2d"|"2.5d"|"3d"), "pitch" (one or two sentences that state what the player must do), "canvas" {"width","height"}, "palette" {"bg","panel","accent","text","danger"} as #rrggbb, "controls" (up to 6 short strings), "gameplay" {"view": "side" for a 2D side-scrolling platformer (gravity, jumping, pits, enemies you stomp; 2D only) or omit it, "goal": {"type": one of collect|keys|exit|defeat|survive|build (build = place blocks, 3D only), "label": what the player gathers or hunts in one or two words such as "lanterns", "count": 3 to 12, "seconds": 45 to 180 for survive}, "threat": {"type": one of chasers|patrol|hazards|timer|none, "label": the enemy name such as "stalker", "count": 1 to 4, "speed": slow|normal|fast, "sight": short|normal|long, "hp": 1 to 3}, "player": {"health": 1 to 5, "shoots": true or false, "jumps": true or false (3D jumping and platforms), "builds": true or false (3D: place and break blocks that are solid for you and the enemies)}} (set "mode": "custom" instead only if the idea truly needs mechanics this menu cannot express), "modules" (1 to 3 objects {"name": CamelCase letters only, "responsibility"} that build the WORLD only: environment, props, atmosphere or an extra feature; never the player, enemies, pickups, goals, rules or HUD), "tasks" (3 to 5 objects {"title","owner","description"} where owner is exactly one of Game designer, Gameplay engineer, QA tester, Producer).',
+    "Before implementation, translate the brief into a concrete playable plan: player fantasy, moment-to-moment loop, world layout and landmarks, progression, signature mechanic, and 4-8 acceptance checks tied to explicit user requirements. Include those checks in a string array named acceptance. Resolve contradictions with the handoff in favor of the user's brief. After code generation the studio will compare the artifact against these checks. The runtime Director is a small arcade loop: objectives, simple enemies, health, shooting and endings. Use it only when that is a faithful fit. For games whose identity depends on survival systems, crafting, quests, exploration, multiple connected areas or other mechanics the Director cannot express, set gameplay.mode to custom and build the actual core loop in your modules. Never force a complex brief into collect/survive/shoot just because those options are available. Blueprints and systems cards are optional references, not output layouts: create a distinct world that reflects the requested setting and player actions.",
+    'Return JSON with: "title" (string), "genre" (string), "dimension" ("2d"|"2.5d"|"3d"), "pitch" (one or two sentences that state what the player must do), "canvas" {"width","height"}, "palette" {"bg","panel","accent","text","danger"} as #rrggbb, "controls" (up to 6 short strings), "gameplay" {"mode": "custom" when the built-in arcade Director cannot express the game; otherwise "director", and in Director mode only: "view": "side" for 2D side-scrolling, "goal": {"type": collect|keys|exit|defeat|survive|build}, "threat": {"type": chasers|patrol|hazards|timer|none}, "player": {...}}, "modules" (2 to 5 objects {"name": CamelCase letters only, "responsibility"}; in Director mode these build the world only; in custom mode they implement the requested world and gameplay systems, including controller, resources, combat, progression and rules as needed), "tasks" (3 to 5 objects {"title","owner","description"} where owner is exactly one of Game designer, Gameplay engineer, QA tester, Producer).',
   ].filter(Boolean).join("\n\n");
-  return normalizeDesign(tryParseJson(await callModel(system, user, { json: true, temperature: 0.8 })), brief, { gameplay: extra.gameplayHint });
+  const design = normalizeDesign(tryParseJson(await callModel(system, user, { json: true, temperature: 0.8 })), brief, { gameplay: extra.gameplayHint });
+  if (needsCustomGameplay(brief) && design.gameplay.mode !== "custom") {
+    design.gameplay = { mode: "custom" };
+    if (design.modules.length < 2) design.modules = [
+      { name: "World", responsibility: "Build a distinct explorable 3D world with connected regions, landmarks, environmental detail and traversal fitted to the brief." },
+      { name: "Gameplay", responsibility: "Implement the requested player controls, core actions, resource loop, threats, progression, feedback and meaningful win/loss state from the brief." },
+    ];
+  }
+  if (!design.acceptance.length) design.acceptance = [
+    "Implements the requested genre and player fantasy from the brief.",
+    "The main interaction and progression are playable and understandable.",
+    "The setting and world details are specific to this brief.",
+    "Controls, restart, and a meaningful outcome work during play.",
+  ];
+  return design;
 }
 
 /** Asks the model what a game it was named after is like; only titles the library does not know. */
@@ -312,13 +335,15 @@ async function buildModule(spec, { design, done, example, knowledge, current = "
   const written = done.map((m) => `// module ${m.name}\n${clip(m.code, 2200)}`).join("\n\n");
   const user = [
     `Game: "${design.title}" (${design.genre}, ${design.dimension}). ${design.pitch}`,
+    `Required acceptance checks from the user's brief: ${(design.acceptance || []).join("; ")}. Preserve these requirements in the implementation and report gaps rather than substituting a generic loop.`,
     `Canvas ${design.width}x${design.height}. Controls: ${design.controls.join("; ") || "WASD or arrows, Space to act"}. Palette: ${JSON.stringify(design.palette)}.`,
     `All modules of this game, in the order they run and draw:\n${overview}`,
     design.gameplay && design.gameplay.mode !== "custom" ? `The runtime Director already provides, from this spec, the player controller, the objectives, the enemies, health, shooting, a compass, the HUD, and the win and lose conditions: ${JSON.stringify(design.gameplay)}. Do NOT write any of those. Your module builds the WORLD of this game and adds atmosphere, props or an extra feature that fits it. ${{ "side": "The level scrolls sideways and is about g.w * 3.2 pixels wide, with the ground line near y = g.h - 70. The Director draws the sky, hills, ground, platforms, enemies and everything playable. You add background decoration (clouds, trees, signs, torches) in draw using world coordinates between x = 0 and x = g.w * 3.2; keep it behind the action and do not draw platforms or enemies.", "3d": "Push meshes into g.scene.meshes (floor, walls, props; set mesh.solid = true on walls and pillars; if the player can jump, add low platforms 0.8 to 1.6 high and at least 2 wide that can be climbed), set g.world = { bounds: {...} } to the walkable area, optionally set g.scene.sky = [top, bottom] and g.scene.fog, and set g.scene.cam.pos to a good start. Leave open space: the Director scatters objectives and enemies in free space.", "2.5d": "Draw the environment in draw with Kit.iso (grid cells 0 to 8) and set g.world = { bounds: { minX: 0.6, maxX: 7.4, minZ: 0.6, maxZ: 7.4 } }. Keep it decorative; the Director places objectives and enemies.", "2d": "Draw the environment in draw (floor, walls, decoration) and keep it decorative with the middle clear; the Director places objectives and enemies." }[design.gameplay.view === "side" ? "side" : design.dimension] || ""}` : "",
+    design.gameplay && design.gameplay.mode === "custom" ? `This is custom gameplay. The Director will be OFF. Implement this module's assigned game systems from the brief; do not replace the game with a generic survival timer, arena, or chase loop. For 3D, create authored/procedural meshes in g.scene.meshes, set g.world.bounds and camera/sky, use Kit.fp.update(g, dt, options) for first-person movement or implement another fitting controller, and publish g.player each update. Use g.hud.push(...) for useful status and g.end(true/false, message) for earned endings. Modules share g.data; initialize a predictable data object in init. Generate connected regions, landmarks, and variations from a seeded g.rand() where useful. The brief and pitch are the source of truth for mechanics.` : "",
     `Runtime API:\n${apiText(design.dimension)}\nThe complete list of Kit functions that exist: ${kitCatalog().list}.`,
     `Example of a complete working module (a different game; copy its structure, not its content):\n${example}`,
     written ? `Modules already written (read their g.data fields before using them):\n${written}` : "",
-    knowledge ? `Studio lessons:\n${clip(knowledge, 1500)}` : "",
+    knowledge ? `Studio lessons (adapt techniques to this module and the approved design):\n${clip(knowledge, 2600)}` : "",
     `Write the module named "${spec.name}": ${spec.responsibility}. Other modules may not exist yet when yours is tested, so guard reads of other modules' g.data with || {}. Register it with Game.module("${spec.name}", { init, update, draw }).`,
     current && kind === "revision" ? `Current version of this module:\n${clip(current, 4000)}\n\nThe player asked for this change: ${note}\nRewrite the complete module with that change, keeping everything else working.` : "",
     current && kind !== "revision" ? `Your current version of this module has a problem found by an automated playtest:\n${clip(current, 4000)}\n\nPlaytest finding: ${note}\nRewrite the complete module so it passes.` : "",
@@ -348,10 +373,10 @@ const UNJUDGED = ["error", "exit", "timeout", "crashed"];
 async function playtest(design, modules) {
   const code = assemble(configOf(design), modules);
   const run = (o) => smokeRun(code, { width: design.width, height: design.height, minCalls: 0, minPlayRatio: 0, ...o });
-  let [active, idle] = await Promise.all([run({ frames: 360 }), run({ frames: 240, idle: true })]);
+  let [active, idle] = await Promise.all([run({ frames: 900 }), run({ frames: 600, idle: true })]);
   // A busy machine can time a bot run out; try again on its own rather than quietly judging nothing.
-  if (["error", "exit", "timeout"].includes(active.mode)) active = await run({ frames: 360, timeoutMs: 40_000 });
-  if (["error", "exit", "timeout"].includes(idle.mode)) idle = await run({ frames: 240, idle: true, timeoutMs: 40_000 });
+  if (["error", "exit", "timeout"].includes(active.mode)) active = await run({ frames: 900, timeoutMs: 60_000 });
+  if (["error", "exit", "timeout"].includes(idle.mode)) idle = await run({ frames: 600, idle: true, timeoutMs: 60_000 });
   return { active, idle };
 }
 
@@ -390,19 +415,23 @@ async function reviseGame(projectId, instruction, options = {}) {
   const log = (message, level = "info") => emit({ type: "log", level, message });
   const phase = (message) => emit({ type: "phase-started", phase: "build", message });
   if (!/^game-\d+-[a-f0-9]{8}$/.test(String(projectId))) throw new Error("Invalid project identifier.");
-  const text = safeText(instruction, 600);
+  const text = safeText(instruction, 4000);
   if (text.length < 3) throw new Error("Tell me what you want to change.");
   const fsp = require("node:fs/promises");
   const root = path.join(projectsDir, projectId);
   let record, gameJs;
   try { record = JSON.parse(await fsp.readFile(path.join(root, "studio-design.json"), "utf8")); gameJs = await fsp.readFile(path.join(root, "game.js"), "utf8"); }
   catch { throw new Error("This game was made before revisions were supported, so it cannot be continued. Start a new project instead."); }
+  if (record.blueprint) return reviseBlueprintGame(projectId, record, text, { ...options, projectsDir, emit });
   const design = JSON.parse(JSON.stringify(record.design));
   const directorOn = design.gameplay && design.gameplay.mode !== "custom";
   const done = (record.fallback ? [] : parseModules(gameJs)).map((m) => ({ ...m, index: Math.max(0, design.modules.findIndex((x) => x.name === m.name)) }));
   for (const m of done) if (m.index === 0 && !design.modules.some((x) => x.name === m.name)) m.index = design.modules.length;
   const specs = new Map(design.modules.map((m) => [m.name.toLowerCase(), m]));
   const example = readRuntime(directorOn ? worldExampleFor(design) : FALLBACKS[design.dimension]);
+  const revisionRules = directorOn
+    ? 'For a change return "gameplay" (only changed fields: goal {type collect|keys|exit|defeat|survive, label, count, seconds}, threat {type chasers|patrol|hazards|timer|none, label, count, speed slow|normal|fast, sight short|normal|long, hp}, player {health, shoots, jumps, builds}), "title", "pitch", "palette" {bg,panel,accent,text,danger as #rrggbb}, or 0 to 2 "modules" objects {"name": CamelCase, "action":"rewrite"|"add", "change":"..."}. The Director owns player, enemies, pickups, goals, rules and HUD; use gameplay fields for those and modules for the world only.'
+    : 'For a change return "title", "pitch", "palette" {bg,panel,accent,text,danger as #rrggbb}, or 1 to 3 "modules" objects {"name": CamelCase, "action":"rewrite"|"add", "change":"..."}. Custom modules own the actual game systems, so revise the requested controller, world, inventory, combat, resources, progression, UI or rules in the appropriate modules. Preserve working mechanics and the original premise unless the player asks to change them.';
 
   phase("Planning the change…");
   const plan = tryParseJson(await chat([
@@ -413,7 +442,7 @@ async function reviseGame(projectId, instruction, options = {}) {
       `Current modules: ${design.modules.map((m) => `${m.name} (${m.responsibility})`).join("; ") || "none"}.`,
       history.length ? `Earlier requests in this conversation:\n${history.slice(-6).map((h) => `- ${safeText(h, 200)}`).join("\n")}` : "",
       `The player says: "${text}"`,
-      'Return JSON with: "action" ("change" or "answer": use "answer" only when the player asked a question or nothing needs to change), "reply" (one to three plain sentences telling the player what you changed or the answer), and for a change any of: "gameplay" (only the fields that change, same schema: goal {type collect|keys|exit|defeat|survive, label, count, seconds}, threat {type chasers|patrol|hazards|timer|none, label, count, speed slow|normal|fast, sight short|normal|long, hp}, player {health, shoots, jumps, builds}), "title", "pitch", "palette" {bg,panel,accent,text,danger as #rrggbb}, "modules" (0 to 2 objects {"name": CamelCase, "action": "rewrite" an existing module or "add" a new world module, "change": what to do}). Prefer "gameplay" for difficulty, enemies, goals, counts and speed; use "modules" for the look, setting and extra world features. Never create modules for the player, enemies, pickups, goals, rules or HUD.',
+      `Return JSON with: "action" ("change" or "answer"), "reply" (one to three plain sentences), and for a change the relevant fields. ${revisionRules}`,
     ].filter(Boolean).join("\n\n") },
   ], { json: true, temperature: 0.4 }));
   if (!plan || (plan.action !== "change" && plan.action !== "answer")) throw new Error("I could not work out what to change. Try saying it differently.");
@@ -438,7 +467,7 @@ async function reviseGame(projectId, instruction, options = {}) {
     const existing = done.find((m) => m.name.toLowerCase() === name.toLowerCase());
     const spec = (existing && specs.get(existing.name.toLowerCase())) || { name, responsibility: what };
     log(`${existing ? "Rewriting" : "Adding"} module ${existing ? existing.name : name}…`);
-    const result = await buildModule(spec, { design, done: [...done].sort((a, b) => a.index - b.index).filter((m) => m !== existing), example, knowledge: "", current: existing ? existing.code : "", note: what, kind: "revision" });
+    const result = await buildModule(spec, { design, done: [...done].sort((a, b) => a.index - b.index).filter((m) => m !== existing), example, knowledge: require("./knowledge").relevantKnowledge(`${record.brief}\n${text}\n${spec.name} ${spec.responsibility}`, { limit: 14 }), current: existing ? existing.code : "", note: what, kind: "revision" });
     if (!result.code) { log(`Could not change module ${name} (${String(result.error).slice(0, 100)}); keeping it as it was.`, "warn"); continue; }
     if (existing) existing.code = result.code;
     else { done.push({ name, code: result.code, index: design.modules.length }); design.modules.push(spec); specs.set(name.toLowerCase(), spec); }
@@ -452,7 +481,8 @@ async function reviseGame(projectId, instruction, options = {}) {
     const entry = done.find((m) => m.name === problem.blame);
     if (!entry) continue;
     log(`Playtest found: ${problem.note.slice(0, 140)}`, "warn");
-    const result = await buildModule(specs.get(entry.name.toLowerCase()) || { name: entry.name, responsibility: "as already written" }, { design, done: ordered().filter((m) => m !== entry), example, knowledge: "", current: entry.code, note: problem.note });
+    const spec = specs.get(entry.name.toLowerCase()) || { name: entry.name, responsibility: "as already written" };
+    const result = await buildModule(spec, { design, done: ordered().filter((m) => m !== entry), example, knowledge: require("./knowledge").relevantKnowledge(`${record.brief}\n${spec.name} ${spec.responsibility} ${problem.note}`, { limit: 14 }), current: entry.code, note: problem.note });
     if (result.code) entry.code = result.code;
   }
   if (problems.length) problems = assessPlaytest(design, await playtest(design, ordered()), ordered());
@@ -469,7 +499,8 @@ async function reviseGame(projectId, instruction, options = {}) {
   const { files, tasks } = validateProject({ indexHtml: renderIndexHtml(design.title, design.width, design.height), gameJs: newJs, gameCss: renderCss(design), tasks: design.tasks });
   const saved = await saveProject(files, tasks, projectsDir, "ai");
   const revision = (record.revision || 1) + 1;
-  await writeDesignRecord(path.join(projectsDir, saved.id), { version: 1, brief: record.brief, design, fallback: false, parentId: projectId, revision, instructions: [...(record.instructions || []), text].slice(-20) });
+  await writeDesignRecord(path.join(projectsDir, saved.id), { version: 1, brief: record.brief, design, fallback: false, parentId: projectId, revision, instructions: [...(record.instructions || []), text].slice(-20), conversation: record.conversation || [], knowledgeUsed: record.knowledgeUsed || [] });
+  try { if (record.knowledgeUsed?.length) require("./knowledge").recordBuildFeedback({ projectId: saved.id, lessonIds: record.knowledgeUsed.map((item) => item.id), rating: problems.length ? -1 : 1, source: "automated-revision-playtest" }); } catch { /* feedback is advisory and cannot fail a revision */ }
   log(reply);
   return { changed: true, reply, project: { ...saved, title: design.title, genre: design.genre, dimension: design.dimension, gameplay: design.gameplay, fallback: false, parentId: projectId, revision } };
 }
@@ -495,13 +526,103 @@ function renderCss(design) {
   return `:root { --bg: ${p.bg}; --panel: ${p.panel}; --accent: ${p.accent}; --text: ${p.text}; --danger: ${p.danger}; }\nhtml, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }\nbody { display: flex; align-items: center; justify-content: center; overflow: hidden; }\ncanvas { width: min(100vw, calc(100vh * ${design.width} / ${design.height})); height: auto; background: var(--bg); touch-action: none; outline: none; }\n`;
 }
 
+async function saveBlueprintRoute(route, brief, options, knowledge, previous = null) {
+  const { projectsDir = path.join(__dirname, "projects"), emit = () => {} } = options || {};
+  const base = blueprintRouter.designFor(route, blueprintRouter.PALETTES);
+  const title = safeText(base.title, 48) || "Untitled Game";
+  const design = {
+    title, genre: base.genre, pitch: safeText(base.summary, 240), dimension: "2d",
+    width: base.canvas.width, height: base.canvas.height, palette: base.palette,
+    controls: base.controls, gameplay: { mode: "custom" },
+    acceptance: ["The generated game matches the requested genre, world, and player actions.", "Core controls and objective are clear and playable."],
+    modules: [{ name: "Blueprint", responsibility: `The tested ${route.type} blueprint implements the selected mechanics and world.` }],
+    tasks: base.tasks,
+  };
+  const source = ["studio-engine.js", "studio-kit.js", "studio-blueprints.js"]
+    .map((name) => fs.readFileSync(path.join(__dirname, name), "utf8"));
+  source.push(`Blueprint.run(${JSON.stringify(route.spec)});`);
+  const gameJs = source.join("\n");
+  new vm.Script(gameJs, { filename: "blueprint-game.js" });
+  const { files, tasks } = validateProject({
+    indexHtml: renderIndexHtml(title, design.width, design.height),
+    gameJs, gameCss: renderCss(design), tasks: design.tasks,
+  });
+  const saved = await saveProject(files, tasks, projectsDir, "ai");
+  await writeDesignRecord(path.join(projectsDir, saved.id), {
+    version: 1, brief: clip(brief, 4000), design, blueprint: route, fallback: false,
+    knowledgeUsed: options?.knowledgeSelections || [],
+    ...(previous ? {
+      parentId: previous.projectId,
+      revision: (previous.revision || 1) + 1,
+      instructions: [...(previous.instructions || []), previous.instruction].filter(Boolean).slice(-20),
+      conversation: previous.conversation || [],
+    } : {}),
+  });
+  emit({ type: "log", level: "info", message: `Built with the tested ${route.type} blueprint, selected as a fit for this contained game.` });
+  return { ...saved, title, genre: design.genre, dimension: "2d", blueprint: route.type, fallback: false };
+}
+
+async function buildBlueprintRoute(brief, handoff, options, knowledge) {
+  const route = await blueprintRouter.routeBlueprint({ chat, parseJson: tryParseJson }, brief, handoff, knowledge);
+  return route ? saveBlueprintRoute(route, brief, options, knowledge) : null;
+}
+
+async function reviseBlueprintGame(projectId, record, instruction, options) {
+  const { projectsDir = path.join(__dirname, "projects"), emit = () => {}, history = [] } = options || {};
+  const prior = record.blueprint;
+  const answer = tryParseJson(await chat([
+    { role: "system", content: "You are revising an existing game built on one of the implemented Traumatic Studios blueprints. Keep its current blueprint type and its working core loop. Reply with one JSON object only." },
+    { role: "user", content: `Current game: ${record.design.title} (${prior.type}). Current blueprint specification: ${JSON.stringify(prior.spec)}\nEarlier requests:\n${history.slice(-6).join("\n")}\nUser request: ${instruction}\nReturn {\"action\":\"change\"|\"answer\"|\"custom\",\"reply\":\"...\",\"spec\":{...complete updated spec, with the same type}}. Use custom if the requested feature cannot fit this blueprint.` },
+  ], { json: true, temperature: 0.4 }));
+  if (!answer || !["change", "answer", "custom"].includes(answer.action)) throw new Error("I could not work out how to update this blueprint game.");
+  const reply = safeText(answer.reply, 400) || "Done.";
+  if (answer.action === "answer") return { changed: false, reply };
+  const nextRecord = JSON.parse(JSON.stringify(record));
+  const revision = (record.revision || 1) + 1;
+  nextRecord.instructions = [...(record.instructions || []), instruction].slice(-20);
+  if (answer.action === "custom") {
+    const custom = await createGame(`${record.brief}\n\nPlayer follow-up: ${instruction}`, `Continue the existing game titled ${record.design.title}. Preserve its central theme and useful working mechanics while implementing this follow-up: ${instruction}`, { ...options, skipBlueprint: true });
+    const fsp = require("node:fs/promises");
+    const customRecord = JSON.parse(await fsp.readFile(path.join(projectsDir, custom.id, "studio-design.json"), "utf8"));
+    await writeDesignRecord(path.join(projectsDir, custom.id), { ...customRecord, parentId: projectId, revision, instructions: nextRecord.instructions, conversation: record.conversation || [] });
+    return { changed: true, reply, project: { ...custom, parentId: projectId, revision } };
+  }
+  const route = { type: prior.type, spec: { ...(answer.spec || {}), type: prior.type } };
+  if (!blueprintRouter.TYPES.includes(route.type)) throw new Error("This blueprint is no longer available for revisions.");
+  const project = await saveBlueprintRoute(route, record.brief, options, "", {
+    projectId, revision: record.revision, instructions: nextRecord.instructions,
+    conversation: record.conversation || [],
+  });
+  return { changed: true, reply, project: { ...project, parentId: projectId, revision } };
+}
+
 /* ---------- main entry ---------- */
 async function createGame(brief, handoff, options = {}) {
   const { projectsDir = path.join(__dirname, "projects"), emit = () => {} } = options || {};
   const log = (message, level = "info") => emit({ type: "log", level, message });
   const phase = (message) => emit({ type: "phase-started", phase: "build", message });
   let knowledge = "";
-  try { knowledge = String(require("./knowledge").relevantKnowledge(brief) || ""); } catch { /* study notes are optional */ }
+  let knowledgeSelections = [];
+  try { knowledgeSelections = require("./knowledge").retrieveKnowledge(`${brief}\n${handoff}`, { limit: 22 }); } catch { /* knowledge is optional */ }
+  log(`Selected ${knowledgeSelections.length} relevant studio lessons for this build.`, "info");
+  for (const item of knowledgeSelections) log(`Lesson: ${item.topic || "Game development"} — ${item.reason} Source: ${item.source} (${item.sourceTier}, ${Math.round(item.sourceQuality * 100)}%).`, "info");
+  try { knowledge = String(require("./knowledge").relevantKnowledge(`${brief}\n${handoff}`, { limit: 22 }) || ""); } catch { /* study notes are optional */ }
+  const knowledgeForModule = (spec) => {
+    try { return String(require("./knowledge").relevantKnowledge(`${brief}\n${handoff}\n${design.genre}\n${spec.name} ${spec.responsibility}`, { limit: 14 }) || knowledge); }
+    catch { return knowledge; }
+  };
+
+  const blueprintSetting = String(process.env.STUDIO_BLUEPRINTS || "").toLowerCase();
+  if (!options.skipBlueprint && (blueprintSetting === "always" || (blueprintSetting !== "off" && usingKeylessDefault()))) {
+    try {
+      phase("Checking whether a tested blueprint fits this game…");
+      const project = await buildBlueprintRoute(brief, handoff, { ...options, knowledgeSelections }, knowledge);
+      if (project) return project;
+      log("No implemented blueprint fits this brief; using custom generation.");
+    } catch (error) {
+      log(`Blueprint route failed (${error.message.slice(0, 120)}); using custom generation.`, "warn");
+    }
+  }
 
   phase("Choosing reference blueprints for your idea…");
   const forced = detectDimension(`${brief}\n${handoff}`);
@@ -538,7 +659,7 @@ async function createGame(brief, handoff, options = {}) {
     if (failuresInARow >= 2) { log(`Skipping module ${spec.name}: the model keeps failing, so the safe fallback will be used.`, "warn"); continue; }
     log(`Building module: ${spec.name}`);
     const started = Date.now();
-    const result = await buildModule(spec, { design, done: inOrder(), example, knowledge });
+    const result = await buildModule(spec, { design, done: inOrder(), example, knowledge: knowledgeForModule(spec) });
     if (result.code) {
       done.push({ name: spec.name, code: result.code, index });
       failuresInARow = 0;
@@ -554,7 +675,7 @@ async function createGame(brief, handoff, options = {}) {
   if (done.length >= 1) {
     for (const item of skipped.slice(0, 2)) {
       log(`Second try for module ${item.spec.name}…`);
-      const retry = await buildModule(item.spec, { design, done: inOrder(), example, knowledge });
+      const retry = await buildModule(item.spec, { design, done: inOrder(), example, knowledge: knowledgeForModule(item.spec) });
       if (retry.code) { done.push({ name: item.spec.name, code: retry.code, index: item.index }); log(`Wrote module ${item.spec.name} on the second try.`); }
       else log(`Module ${item.spec.name} stays skipped (${String(retry.error).slice(0, 100)}).`, "warn");
     }
@@ -578,7 +699,7 @@ async function createGame(brief, handoff, options = {}) {
     const name = ["Rules", "GameRules", "RulesAndGoals"].find((n) => !names.has(n.toLowerCase())) || "RulesAndGoals2";
     const spec = { name, responsibility: `Owns the ending of the game. It must contain ${missing}: win when the player's goal is complete, lose when the player fails (health at zero, caught by a threat, or time runs out). Read the other modules' g.data fields and g.player; guard every read with || {}.` };
     specs.set(name.toLowerCase(), spec);
-    const result = await buildModule(spec, { design, done: inOrder(), example, knowledge });
+    const result = await buildModule(spec, { design, done: inOrder(), example, knowledge: knowledgeForModule(spec) });
     if (result.code) { done.push({ name, code: result.code, index: design.modules.length }); log(`Wrote module ${name}.`); }
     have = endings();
     if (!have.win || !have.lose) {
@@ -603,7 +724,7 @@ async function createGame(brief, handoff, options = {}) {
         const entry = done.find((m) => m.name === problem.blame);
         if (!entry) continue;
         const spec = specs.get(entry.name.toLowerCase()) || { name: entry.name, responsibility: "as already written" };
-        const result = await buildModule(spec, { design, done: inOrder().filter((m) => m.name !== entry.name), example, knowledge, current: entry.code, note: problem.note });
+        const result = await buildModule(spec, { design, done: inOrder().filter((m) => m.name !== entry.name), example, knowledge: knowledgeForModule(spec), current: entry.code, note: problem.note });
         if (result.code) { entry.code = result.code; log(`Rewrote module ${entry.name} after the playtest.`); }
       }
       runs = await playtest(design, inOrder());
@@ -646,8 +767,9 @@ async function createGame(brief, handoff, options = {}) {
   phase("Validating and saving the build…");
   const { files, tasks } = validateProject({ indexHtml: renderIndexHtml(design.title, design.width, design.height), gameJs, gameCss: renderCss(design), tasks: design.tasks });
   const saved = await saveProject(files, tasks, projectsDir, "ai");
-  await writeDesignRecord(path.join(projectsDir, saved.id), { version: 1, brief: clip(brief, 4000), design, fallback: usedFallback });
+  await writeDesignRecord(path.join(projectsDir, saved.id), { version: 1, brief: clip(brief, 4000), design, fallback: usedFallback, knowledgeUsed: knowledgeSelections.map(({ id, topic, source, title, sourceTier, sourceQuality, reason }) => ({ id, topic, source, title, sourceTier, sourceQuality, reason })) });
+  try { if (knowledgeSelections.length) require("./knowledge").recordBuildFeedback({ projectId: saved.id, lessonIds: knowledgeSelections.map((item) => item.id), rating: usedFallback ? -1 : 1, source: usedFallback ? "automated-build-fallback" : "automated-build-validation" }); } catch { /* feedback is advisory and cannot fail a build */ }
   return { ...saved, title: design.title, genre: design.genre, dimension: design.dimension, gameplay: design.gameplay, fallback: usedFallback };
 }
 
-module.exports = { createGame, chat, parseJson, tryParseJson, smokeTest, normalizeDesign, stripFences, sanitizeModule, checkModule, assemble, renderIndexHtml, renderCss, detectDimension, safeText, clip, kitCatalog, fixKitNames, fallbackRules, assessPlaytest, playtest, normalizeGameplay, directorOwns, describeUnknownGames, writeDesignRecord, reviseGame, parseModules, buildModule, configOf };
+module.exports = { createGame, chat, parseJson, tryParseJson, smokeTest, normalizeDesign, stripFences, sanitizeModule, checkModule, assemble, renderIndexHtml, renderCss, detectDimension, safeText, clip, kitCatalog, fixKitNames, fallbackRules, assessPlaytest, playtest, normalizeGameplay, needsCustomGameplay, directorOwns, describeUnknownGames, writeDesignRecord, reviseGame, parseModules, buildModule, configOf };

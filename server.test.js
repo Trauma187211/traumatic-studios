@@ -36,6 +36,19 @@ test("reports demo availability and rejects malformed or out-of-range sprint bri
     localAvailable: true,
   });
 
+  const knowledgeResponse = await fetch(`${baseUrl}/api/knowledge?offset=0&q=game`);
+  assert.equal(knowledgeResponse.status, 200);
+  const knowledge = await knowledgeResponse.json();
+  assert.ok(knowledge.total >= 1_500);
+  assert.equal(knowledge.total, knowledge.report.lessons);
+  assert.ok(knowledge.items.length <= 50);
+  assert.ok(knowledge.matching > 0);
+
+  const memoryResponse = await fetch(`${baseUrl}/api/memory?offset=0`);
+  assert.equal(memoryResponse.status, 200);
+  const memory = await memoryResponse.json();
+  assert.ok(memory.total >= memory.learnings.length);
+
   const badBriefs = [
     { brief: "short" },
     { brief: "x".repeat(5_001) },

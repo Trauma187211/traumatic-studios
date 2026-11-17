@@ -89,6 +89,7 @@
           <p class="memory-caption">Useful team lessons, saved on this machine and shared with future projects.</p>
           <p id="memory-empty" class="memory-empty">No learnings saved yet. The team will build its first shared lessons after a sprint.</p>
           <ul id="memory-list" class="memory-list"></ul>
+          <button id="memory-more" type="button" hidden>Load more studio learnings</button>
           <p id="memory-error" class="memory-error" role="alert" hidden></p>
         </section>
 
@@ -102,19 +103,19 @@
           </div>
           <div class="curriculum">
             <h3>Studio curriculum (free sources)</h3>
-            <p class="memory-caption">Built-in reading list: design theory, genre playbooks, programming patterns, algorithms, browser game craft and the Godot docs. Pick tracks and the team studies each page, then sits a closed-book exam on it and gets re-taught anything it misses. It remembers pages it has already finished, so you can stop and resume.</p>
+          <p class="memory-caption">Built-in reading list: design theory, genres, world systems, production postmortems, 3D foundations, programming patterns, algorithms, browser game craft and Godot. Research continues in the background without a daily page quota and remembers studied sources so it can resume.</p>
             <div id="learn-tracks" class="learn-tracks"></div>
             <label class="key-remember"><input id="learn-drill" type="checkbox" checked> Drill the team with a closed-book exam after each page (slower, but it makes the lessons stick)</label>
             <div class="key-actions"><button id="curriculum-button" type="button">Start the curriculum</button></div>
           </div>
           <form id="learn-form" class="key-form" autocomplete="off">
-            <label for="learn-links">LINKS (one per line, up to 10)</label>
+            <label for="learn-links">LINKS (one per line)</label>
             <textarea id="learn-links" rows="3" spellcheck="false" required placeholder="https://…"></textarea>
-            <label class="key-remember"><input id="learn-follow" type="checkbox" checked> Also read the most useful pages these links lead to (up to 12 each)</label>
+            <label class="key-remember"><input id="learn-follow" type="checkbox" checked> Also read useful game-development pages linked from these sources</label>
             <div class="key-actions"><button id="learn-button" type="submit">Study these links</button></div>
           </form>
           <ol id="learn-log" class="live-log learn-log" hidden></ol>
-          <details class="learn-details"><summary>What the studio has learned</summary><ul id="learn-list" class="learn-list"></ul></details>
+          <details class="learn-details"><summary>What the studio has learned</summary><label for="learn-search" class="memory-caption">Search the full lesson library</label><input id="learn-search" type="search" placeholder="Search topics, lessons, or sources"><ul id="learn-list" class="learn-list"></ul><button id="learn-more" type="button" hidden>Load more lessons</button></details>
         </section>
 
         <section id="work-section" class="work-section" hidden aria-live="polite">

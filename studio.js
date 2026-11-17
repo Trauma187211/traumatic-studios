@@ -1,13 +1,14 @@
 const { getModel, keylessPool, usingKeylessDefault } = require("./settings");
 const { cleanReply, llmFetch, withNotices } = require("./llm");
-const { getMemoryFile, readLearnings, saveLearnings } = require("./memory-store");
+const { getMemoryFile, readLearnings, saveLearnings, selectRelevantLearnings } = require("./memory-store");
 const { createPrototype, createDemoPrototype, readProjectSources } = require("./project-builder");
-const { createGame } = require("./game-generator");
+const { createGame, reviseGame, writeDesignRecord } = require("./game-generator");
 const { createGodotGame } = require("./godot-generator");
 const { findGodot } = require("./godot-runner");
 const { relevantKnowledge } = require("./knowledge");
 const { markBusy, markIdle } = require("./research");
 const path = require("node:path");
+const fs = require("node:fs/promises");
 
 const PROJECT_ID = /^game-\d+-[a-f0-9]{8}$/;
 const usableProject = (project) => PROJECT_ID.test(String(project && project.id));
@@ -78,8 +79,9 @@ function emitTeamMessage(from, to, stage, content, emit) {
 }
 
 async function runSprint(brief, emit, { memoryFile = getMemoryFile(), projectsDir } = {}) {
-  const learnings = await readLearnings(memoryFile);
-  const studied = relevantKnowledge(brief);
+  const allLearnings = await readLearnings(memoryFile);
+  const learnings = selectRelevantLearnings(allLearnings, brief);
+  const studied = relevantKnowledge(brief, { limit: 22 });
   const memoryContext = (learnings.length
     ? `\n\nReusable studio learnings from previous projects:\n${learnings.map(({ lesson }) => `- ${lesson}`).join("\n")}`
     : "\n\nThere are no saved studio learnings yet. Be explicit about useful assumptions and risks.") + studied;
@@ -160,6 +162,8 @@ async function runSprint(brief, emit, { memoryFile = getMemoryFile(), projectsDi
     throw new Error(`The build returned an unusable project id (${JSON.stringify(project && project.id)}). Project keys: ${Object.keys(project || {}).join(", ") || "none"}.`);
   }
   const projectSources = await readProjectSources(project.id, projectsDir);
+  let savedDesign = {};
+  try { savedDesign = JSON.parse(await fs.readFile(path.join(projectsDir || path.join(__dirname, "projects"), project.id, "studio-design.json"), "utf8")); } catch { /* older generators may not write design notes */ }
   const clip = (text, limit) => (text.length > limit ? `${text.slice(0, limit)}\n/* …truncated for review… */` : text);
   let implementationReview = "The AI review was skipped to save calls on the rate-limited free provider. Play-test the build manually.";
   const lean = usingKeylessDefault() && !keylessPool()[0].local;
@@ -170,7 +174,7 @@ async function runSprint(brief, emit, { memoryFile = getMemoryFile(), projectsDi
       implementationReview = await runAgent(
         "qa",
         "implementation-review",
-        `Approved handoff:\n${handoff}\n\nGenerated playable prototype source (a Godot build keeps its scripts in the godot folder; the files below are its web wrapper):\nindex.html:\n${clip(projectSources["index.html"], 6000)}\ngame.js:\n${clip(projectSources["game.js"], 40000)}\ngame.css:\n${clip(projectSources["game.css"], 6000)}\n\nCheck whether the core interaction is understandable and whether the implementation appears to meet the handoff. Return concise findings and manual play-test suggestions. Do not claim to have executed the game.`,
+        `Original player brief:\n${brief}\n\nDesign acceptance checks:\n${(savedDesign.design?.acceptance || []).map((item, index) => `${index + 1}. ${item}`).join("\n") || "Assess fidelity directly against the brief."}\n\nApproved handoff:\n${handoff}\n\nGenerated playable prototype source (a Godot build keeps its scripts in the godot folder; the files below are its web wrapper):\nindex.html:\n${clip(projectSources["index.html"], 6000)}\ngame.js:\n${clip(projectSources["game.js"], 40000)}\ngame.css:\n${clip(projectSources["game.css"], 6000)}\n\nCheck the implementation against every acceptance check and the original brief. Mark each PASS, PARTIAL, or FAIL with a short reason. Call out genre drift, missing world systems, absent progression, or generic fallback loops. Return concise findings and manual play-test suggestions. Do not claim to have executed the game.`,
         emit,
       );
     } catch (error) {
@@ -186,7 +190,7 @@ async function runSprint(brief, emit, { memoryFile = getMemoryFile(), projectsDi
   if (!lean) {
     try {
       const learningResponse = await askModel(
-        "You are the knowledge steward for Traumatic Studios. Return only a JSON object with a `learnings` array containing 1 to 3 concise, reusable lessons that will help future small game projects. Lessons must be broadly applicable process, design, engineering, or QA guidance. Do not include project-specific details, names, confidential information, or copied text.",
+        "You are the knowledge steward for Traumatic Studios. Return every distinct, reusable lesson this project taught that can improve future game projects. Include process, design, engineering, QA, interaction, and production insights when useful; do not impose an arbitrary lesson count. Keep each insight specific and independently useful. Do not include confidential information or copied text.",
         `Team handoff:\n${handoff}\n\nQA review:\n${qa}\n\nImplementation review:\n${implementationReview}\n\nExtract only lessons worth carrying into future projects.`,
       );
       const jsonText = learningResponse.match(/\{[\s\S]*\}/)?.[0] || learningResponse;
@@ -195,7 +199,7 @@ async function runSprint(brief, emit, { memoryFile = getMemoryFile(), projectsDi
       emit({ type: "log", level: "warn", message: `Skipped saving learnings (${error.message.slice(0, 120)}). The game is unaffected.` });
     }
   }
-  emit({ type: "memory-updated", learnings: savedLearnings });
+  emit({ type: "memory-updated", total: savedLearnings.length });
   emit({ type: "phase-completed", phase: "learning" });
   emit({ type: "studio-completed" });
 }
@@ -209,4 +213,56 @@ const runStudio = async (brief, emit, options) => {
   }
 };
 
-module.exports = { runStudio };
+async function runProjectConversation(projectId, message, { projectsDir = path.join(__dirname, "projects") } = {}) {
+  if (!PROJECT_ID.test(String(projectId))) throw new Error("Invalid project identifier.");
+  const text = String(message || "").trim();
+  if (text.length < 3 || text.length > 2000) throw new Error("Your message must be between 3 and 2,000 characters.");
+  const root = path.join(projectsDir, projectId);
+  let record, metadata;
+  try {
+    [record, metadata] = await Promise.all([
+      fs.readFile(path.join(root, "studio-design.json"), "utf8").then(JSON.parse),
+      fs.readFile(path.join(root, "project.json"), "utf8").then(JSON.parse),
+    ]);
+  } catch {
+    throw new Error("This build does not have the design notes needed to continue the conversation.");
+  }
+  const history = Array.isArray(record.conversation) ? record.conversation : [];
+  const context = [
+    `Original player brief: ${record.brief}`,
+    `Current project: ${record.design.title} (${record.design.genre}, ${record.design.dimension}). ${record.design.pitch}`,
+    `Current gameplay configuration: ${JSON.stringify(record.design.gameplay || {})}`,
+    `Current systems: ${(record.design.modules || []).map((m) => `${m.name}: ${m.responsibility}`).join("; ")}`,
+    record.blueprint ? `This build uses the ${record.blueprint.type} blueprint with this current specification: ${JSON.stringify(record.blueprint.spec)}` : "This is a custom-generated project.",
+    `Current follow-up tasks: ${(metadata.tasks || []).map((t) => `${t.title} (${t.owner})`).join("; ")}`,
+  ].join("\n");
+  const priorTurns = history.filter((item) => item && item.role === "user").slice(-8).map((item) => item.text);
+  const shared = `${context}\n\nConversation so far:\n${history.slice(-12).map((item) => `${item.from || item.role}: ${String(item.text || "").slice(0, 600)}`).join("\n")}\n\nThe player now says: ${text}`;
+  const [designer, engineer] = await Promise.all([
+    askModel("You are the Game designer on the team continuing an existing playable game. Understand what the player means, preserve the project as it sits, and suggest a small, specific next change. Treat the player’s message as the request; do not invent unrelated features.", shared),
+    askModel("You are the Gameplay engineer on the team continuing an existing playable game. Review the current design and propose the smallest practical implementation that preserves working systems and adds what the player asked for.", shared),
+  ]);
+  const qa = await askModel(
+    "You are the QA tester reviewing proposed follow-up work on an existing game. Find likely regressions, clarify assumptions, and give a concise acceptance check. Keep the player's request central.",
+    `${shared}\n\nDesigner proposal:\n${designer}\n\nEngineer proposal:\n${engineer}`,
+  );
+  const consensus = `Game designer: ${designer}\nGameplay engineer: ${engineer}\nQA review: ${qa}`;
+  const revision = await reviseGame(projectId, `Player request: ${text}\n\nTeam discussion and agreed implementation direction:\n${consensus}`, { projectsDir, history: priorTurns });
+  const turns = [
+    ...history,
+    { role: "user", from: "You", text, at: new Date().toISOString() },
+    { role: "assistant", from: "Game designer", text: designer.slice(0, 900), at: new Date().toISOString() },
+    { role: "assistant", from: "Gameplay engineer", text: engineer.slice(0, 900), at: new Date().toISOString() },
+    { role: "assistant", from: "QA tester", text: qa.slice(0, 900), at: new Date().toISOString() },
+    { role: "assistant", from: "Producer", text: revision.reply, at: new Date().toISOString() },
+  ].slice(-60);
+  const targetId = revision.changed ? revision.project.id : projectId;
+  const targetRoot = path.join(projectsDir, targetId);
+  const targetRecord = revision.changed
+    ? JSON.parse(await fs.readFile(path.join(targetRoot, "studio-design.json"), "utf8"))
+    : record;
+  await writeDesignRecord(targetRoot, { ...targetRecord, conversation: turns });
+  return { ...revision, projectId: targetId, conversation: turns };
+}
+
+module.exports = { runStudio, runProjectConversation };

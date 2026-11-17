@@ -15,13 +15,17 @@ const BLUEPRINT_SOURCE =
 const TYPES = [
     "adventure",
     "platformer",
-    "arena",
-    "isometric_2_5d",
-    "fps_3d",
-    "puzzle",
-    "strategy",
-    "custom"
+    "arena"
 ];
+
+const PALETTES = {
+    forest: ["#1b2a1f", "#2f5233", "#4c8c4a", "#a3c585", "#f2e8c9", "#8b5a2b"],
+    dungeon: ["#0f0d17", "#26233a", "#4b4468", "#7b7399", "#c9c2e8", "#e0a458"],
+    desert: ["#3b2a1a", "#a0622d", "#d89c56", "#f2d492", "#fff3d1", "#2a7f8a"],
+    ocean: ["#06142e", "#0b3a73", "#1a73b5", "#5fb7e8", "#d8f3ff", "#ff7b54"],
+    neon: ["#0a0014", "#2b0a5c", "#b300ff", "#00f0ff", "#fffb7d", "#ff2d6f"],
+    snow: ["#16243a", "#4a6b8f", "#9ec0dd", "#e6f2fb", "#ffffff", "#d9534f"],
+};
 
 const COMPLEXITY_TERMS = [
 
@@ -77,6 +81,11 @@ const COMPLEXITY_TERMS = [
     "stardew valley",
     "rimworld"
 ];
+const CUSTOM_ONLY_TERMS = [
+    "mmo", "mmorpg", "rpg", "open world", "open-world", "sandbox",
+    "crafting", "quests", "dialogue", "economy", "factions",
+    "simulation", "survival", "base building", "settlement", "colony",
+];
 
 function analyzeComplexity(input) {
 
@@ -99,7 +108,7 @@ function analyzeComplexity(input) {
                 : "normal",
 
         blueprintAllowed:
-            matches.length < 2
+            matches.length < 2 && !CUSTOM_ONLY_TERMS.some((term) => text.includes(term))
     };
 }
 
@@ -111,6 +120,9 @@ IMPORTANT:
 Blueprints are only suitable for contained,
 self-contained experiences that can reasonably
 fit within a blueprint architecture.
+
+The only implemented blueprints are "adventure", "platformer", and "arena".
+Choose one only when it faithfully fits; otherwise return type "custom".
 
 If the requested game suggests:
 
@@ -394,6 +406,7 @@ module.exports = {
     BLUEPRINT_SOURCE,
     ROUTER_SYSTEM,
     TYPES,
+    PALETTES,
     designFor,
     routeBlueprint,
     analyzeComplexity

@@ -12,9 +12,70 @@ const TRACKS = [
     urls: [wiki("Game_design"), wiki("Game_mechanics"), wiki("Game_feel"), wiki("Game_balance"), wiki("Difficulty_level"), wiki("Level_design"), wiki("Flow_(psychology)"), wiki("Skill_tree"), "https://www.gamedeveloper.com/design/the-art-of-screenshake"],
   },
   {
+    id: "primary-design",
+    title: "Primary game design and production sources",
+    urls: [
+      "https://www.gamedeveloper.com/keyword/postmortems",
+      "https://www.gamedeveloper.com/design",
+      "https://www.gdcvault.com/",
+      "https://www.gamedeveloper.com/production",
+      "https://www.nngroup.com/articles/usability-heuristics-applied-video-games/",
+    ],
+  },
+  {
+    id: "official-engines",
+    title: "Official engine and platform documentation",
+    urls: [
+      "https://docs.unity3d.com/Manual/index.html",
+      "https://dev.epicgames.com/documentation/en-us/unreal-engine",
+      "https://docs.godotengine.org/en/stable/",
+      "https://developer.mozilla.org/en-US/docs/Games",
+      "https://web.dev/articles/canvas-performance",
+    ],
+  },
+  {
+    id: "systems-design",
+    title: "Reusable systems design across genres",
+    urls: [
+      "https://gameprogrammingpatterns.com/contents.html",
+      "https://www.redblobgames.com/",
+      "https://www.gamedeveloper.com/design/level-design-introduction",
+      "https://www.gamedeveloper.com/design/methods-of-creating-invisible-tutorials",
+      "https://www.gamedeveloper.com/design/ten-principles-of-good-level-design-part-1-",
+    ],
+  },
+  {
     id: "genres",
     title: "Genre playbooks (platformer, RPG, roguelike, puzzle, strategy, tower defense and more)",
     urls: [wiki("Platform_game"), wiki("Action-adventure_game"), wiki("Role-playing_video_game"), wiki("Roguelike"), wiki("Metroidvania"), wiki("Puzzle_video_game"), wiki("Real-time_strategy"), wiki("Tower_defense")],
+  },
+  {
+    id: "systems",
+    title: "World and progression systems (open worlds, survival, crafting, quests, economies)",
+    urls: [
+      wiki("Open_world"), wiki("Survival_game"), wiki("Crafting_(games)"), wiki("Quest_(video_games)"), wiki("Nonlinear_gameplay"),
+      wiki("Emergent_gameplay"), wiki("Procedural_generation"), wiki("Game_economy"), wiki("Player_agency"),
+    ],
+  },
+  {
+    id: "production",
+    title: "Production craft and postmortems (scope, iteration, shipped game lessons)",
+    urls: [
+      "https://www.gamedeveloper.com/keyword/postmortems",
+      "https://www.gamedeveloper.com/audio/dissecting-the-postmortem-lessons-learned-from-two-years-of-game-development-self-reportage",
+      "https://www.gamedeveloper.com/production/post-mortem-from-the-trenches-of-a-mid-tier-console-developer",
+      "https://www.gamedeveloper.com/design/classic-postmortem-i-deadly-premonition-i-",
+      wiki("Video_game_development"), wiki("Agile_software_development"),
+    ],
+  },
+  {
+    id: "3d",
+    title: "3D world building and spatial gameplay foundations",
+    urls: [
+      wiki("3D_computer_graphics"), wiki("Level_design"), wiki("Worldbuilding"), wiki("Occlusion_culling"),
+      godot("tutorials/3d/introduction_to_3d"), godot("tutorials/3d/using_gridmaps"),
+      godot("tutorials/3d/physics_introduction"), godot("tutorials/3d/navigation"),
+    ],
   },
   {
     id: "code",

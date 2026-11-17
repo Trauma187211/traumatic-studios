@@ -45,12 +45,12 @@ The zip ships with empty `data` and `projects` folders. No keys or settings are 
 
 1. **Sprint.** The producer, designer, engineer and QA agents discuss the brief. Progress messages stream to the dashboard.
 2. **Handoff.** The producer writes a practical plan. Lessons from earlier sprints are carried into new briefs (`memory-store.js`).
-3. **Generation.** `game-generator.js` picks a route:
-   - **Blueprint route** (default for free, keyless models). A router (`blueprint-router.js`) reads the brief and chooses a proven, tested blueprint from `studio-blueprints.js`: *adventure* (Zelda-like), *platformer* or *arena*. The model fills in data such as the story, map, enemies and items rather than writing an engine. A blueprint game typically builds in about 20 seconds on a local 7B model, against 10 to 15 minutes for freeform.
-   - **Freeform route.** For any other genre, or when blueprints are off, the model writes the game code itself on top of the shared engine and kit.
+3. **Generation.** `game-generator.js` considers the blueprint route for keyless models (or when `STUDIO_BLUEPRINTS=always`):
+   - **Blueprint route.** `blueprint-router.js` may choose one of the implemented, tested 2D blueprints in `studio-blueprints.js`: *adventure*, *platformer* or *arena*. RPG, survival, crafting, open-world, and other systemic briefs bypass blueprints. Unsupported blueprint types are not offered.
+   - **Freeform route.** Complex briefs and all other genres use generated modules on the shared game runtime. This is the route for custom 3D worlds and mechanics.
    - **Godot route.** `godot-generator.js` writes a Godot project and `godot-runner.js` checks and exports it to the web. This needs Godot installed (see `GODOT_PATH`).
 4. **Safety nets.** Each module passes through `module-sanitizer.js`, which makes deterministic fixes to common small-model mistakes. Forbidden-code checks and a smoke test then run, and a repair loop retries failures.
-5. **Result.** The game is saved under `projects/`. Download it from the dashboard as a zip containing the game and a README.
+5. **Result and iteration.** The game is saved under `projects/`. Download it from the dashboard as a zip containing the game and a README. Each project card also has a conversation box: ask the team questions or request changes to the current build. Accepted revisions are saved as a new version, with the earlier version kept in project history.
 
 ### The engine and kit
 
@@ -58,12 +58,18 @@ The zip ships with empty `data` and `projects` folders. No keys or settings are 
 
 ### Learning
 
-The studio can study free reading material in the background, so its notes improve over time.
+The studio can study free reading material in the background, so its notes improve over time. At build time, lessons are retrieved from both the original brief and the team's handoff, then shared with design and code generation. Retrieval balances design, engineering, production, and presentation guidance so a large or frequently used topic does not crowd out every other kind of useful advice. Lessons are references to adapt to the requested game, not fixed game templates.
 
-- `curriculum.js` lists study tracks of public pages (Wikipedia, Game Programming Patterns, Godot and MDN docs, Red Blob Games).
+- `curriculum.js` lists study tracks of public pages, including design, genres, world and progression systems, production postmortems, 3D foundations, Game Programming Patterns, Godot, MDN, and Red Blob Games.
+- The curriculum also includes official Unity, Unreal, Godot, and MDN documentation plus specialist postmortems and systems-design guides. Sources receive a transparent tier and quality score; primary documentation ranks above community articles and overview pages.
 - `knowledge.js` fetches and summarises them into lessons, and refuses private or local addresses.
 - `research.js` and `research-daemon.js` run that study. The daemon works without the dashboard.
-- `seed-knowledge.json` is the starting set of lessons.
+- Lessons and exams are retained without a library-size or daily-research quota. Knowledge and long-term studio memory use append-only journals so new lessons do not rewrite the full history. The dashboard searches and pages through the full library.
+- Each build receives a focused selection of relevant knowledge. Sending the entire archive to every model request would exceed the context windows of existing local and keyless models; all stored lessons remain available for retrieval and for stronger BYOK models.
+- Project cards show which lessons were selected, their matching terms, source, and quality tier. Player fit feedback and automated build/revision checks adjust retrieval scores over time; negative feedback lowers a lesson's rank without deleting it.
+- Planning creates brief-specific acceptance checks before code generation. The QA review compares the generated source with the original prompt and those checks, while the headless bot runs longer active and idle play sessions.
+- `design-references.js` contains optional genre and reusable-system cards (quests, survival, connected regions, settlement economies, and tactical encounters). These inform original designs and do not choose executable templates.
+- `seed-knowledge.json` is the studio's starter curriculum. Existing `data/knowledge.json` and memory files remain as recovery copies when the journal format is first created.
 
 To keep research running while the app is closed, use `install-background-research.bat` (and `remove-background-research.bat` to undo it). Research can be switched off from the dashboard.
 
@@ -148,7 +154,7 @@ Used by the dashboard.
 | `task-patcher.js` | Edits existing projects task by task. |
 | `project-builder.js`, `project-zip.js` | Project files and the zip writer (no dependencies). |
 | `memory-store.js` | Carried lessons. |
-| `knowledge.js`, `curriculum.js`, `research.js`, `research-daemon.js`, `seed-knowledge.json` | Learning system. |
+| `knowledge.js`, `curriculum.js`, `research.js`, `research-daemon.js`, `seed-knowledge.json` | Unbounded lesson archive, background research, and retrieval. |
 | `public/` | Dashboard (`index.html`, `app.js`, `styles.css`, `curl-import.js`). |
 | `*.test.js` | Tests, next to the code they cover. |
 | `make-release.ps1`, `make-hosted.ps1`, `build-desktop.ps1` | Packaging scripts. |

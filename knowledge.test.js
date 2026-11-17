@@ -9,7 +9,7 @@ process.env.STUDIO_KNOWLEDGE_PATH = path.join(tmp, "knowledge.json");
 process.env.STUDIO_SETTINGS_PATH = path.join(tmp, "settings.json");
 
 const { setApiKey } = require("./settings");
-const { assertPublicUrl, htmlToText, isPrivateAddress, knowledgeReport, learnFromLinks, listKnowledge, relevantKnowledge, removeKnowledge } = require("./knowledge");
+const { assertPublicUrl, htmlToText, isPrivateAddress, knowledgeReport, learnFromLinks, listKnowledge, listKnowledgePage, relevantKnowledge, retrieveKnowledge, recordBuildFeedback, rateSource, removeKnowledge, installSeed } = require("./knowledge");
 const { publicTracks, trackUrls } = require("./curriculum");
 
 test("the built-in curriculum lists only public web addresses with no duplicates", () => {
@@ -19,6 +19,26 @@ test("the built-in curriculum lists only public web addresses with no duplicates
   assert.ok(urls.every((url) => /^https:\/\//.test(url)));
   assert.deepEqual(trackUrls(["godot"]).every((url) => url.includes("docs.godotengine.org")), true);
   assert.ok(publicTracks().length >= 6);
+  assert.ok(trackUrls().some((url) => url.includes("docs.unity3d.com")));
+  assert.ok(trackUrls().some((url) => url.includes("dev.epicgames.com")));
+  assert.equal(rateSource("https://docs.godotengine.org/en/stable/").score, 1);
+  assert.ok(rateSource("https://dev.to/someone/game").score < rateSource("https://docs.godotengine.org/en/stable/").score);
+});
+
+test("build feedback is persisted and returned with lesson provenance", () => {
+  const previous = process.env.STUDIO_KNOWLEDGE_PATH;
+  process.env.STUDIO_KNOWLEDGE_PATH = path.join(tmp, "feedback-knowledge.json");
+  try {
+    installSeed();
+    const selected = retrieveKnowledge("snake game design");
+    assert.ok(selected.length);
+    assert.ok(selected[0].source && selected[0].sourceTier && selected[0].reason);
+    const projectId = "game-1780000000000-a1b2c3d4";
+    const event = recordBuildFeedback({ projectId, lessonIds: [selected[0].id], rating: 1, source: "test" });
+    assert.equal(event.lessonIds[0], selected[0].id);
+    assert.equal(retrieveKnowledge("snake game design").find((item) => item.id === selected[0].id).feedback, 1);
+    assert.throws(() => recordBuildFeedback({ projectId: "invalid", lessonIds: [selected[0].id], rating: -1 }), /Invalid project feedback/);
+  } finally { process.env.STUDIO_KNOWLEDGE_PATH = previous; }
 });
 
 test("refuses addresses that reach this computer or a private network", async () => {
@@ -56,9 +76,9 @@ test("learns from a page and its followed link, recalls relevant lessons, and ca
       const body = JSON.parse(options.body);
       const system = body.messages[0].content;
       modelCalls.push(system.slice(0, 30));
-      const reply = /decide which links/.test(system)
+      const reply = /Select every link/.test(system)
         ? { follow: [0] }
-        : { title: "Lessons", lessons: [{ topic: "Coyote time", tags: ["platformer", "general"], lesson: "Allow jumping for about 100 ms after leaving a ledge so jumps feel forgiving." }, { topic: "Short", tags: [], lesson: "too short" }] };
+        : { title: "Lessons", relevant: true, lessons: [{ topic: "Coyote time", tags: ["platformer", "general"], lesson: "Allow jumping for about 100 ms after leaving a ledge so jumps feel forgiving." }, { topic: "Short", tags: [], lesson: "too short" }] };
       return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(reply) } }] }), { status: 200 });
     }
     const html = pages[url];
@@ -94,7 +114,7 @@ test("drills the team, re-teaches missed questions and records the exam", async 
     if (url.endsWith("/chat/completions")) {
       const system = JSON.parse(options.body).messages[0].content;
       let reply;
-      if (/studio librarian/.test(system)) reply = { title: "Tilemaps", lessons: [{ topic: "Tile size", tags: ["tilemap", "general"], lesson: "Use a consistent tile size such as 16 or 32 pixels so collision maps align with art." }] };
+      if (/studio librarian/.test(system)) reply = { title: "Tilemaps", relevant: true, lessons: [{ topic: "Tile size", tags: ["tilemap", "general"], lesson: "Use a consistent tile size such as 16 or 32 pixels so collision maps align with art." }] };
       else if (/exam setter/.test(system)) reply = { questions: [{ question: "How should the camera follow the player in a tilemap?", answer: "Lerp the camera toward the player each frame and clamp it to map bounds.", tags: ["camera", "tilemap"] }, { question: "What tile size keeps collision aligned?", answer: "A consistent tile size such as 16 or 32 pixels.", tags: ["tilemap"] }] };
       else if (/closed-book/.test(system)) { studentRuns++; reply = { answers: [{ id: 0, answer: "not covered" }, { id: 1, answer: "16 or 32 pixels" }] }; if (studentRuns === 2) reply.answers = [{ id: 0, answer: "Lerp the camera and clamp to map bounds." }]; }
       else reply = { results: JSON.parse(options.body).messages[1].content.includes("not covered") ? [{ id: 0, pass: false }, { id: 1, pass: true }] : [{ id: 0, pass: true }] };
@@ -129,6 +149,29 @@ test("reports pages it cannot read instead of failing the whole session", async 
     assert.equal(summary.pages, 0);
     assert.equal(summary.skipped.length, 2);
     await assert.rejects(learnFromLinks([]), /at least one link/);
+  } finally {
+    global.fetch = original;
+  }
+});
+
+test("stores and pages through a lesson library larger than the former retention ceiling", async () => {
+  await setApiKey({ apiKey: "sk-test-key-1234567890-abcdef", model: "gpt-4o" }, { verify: false });
+  const original = global.fetch;
+  global.fetch = async (target) => {
+    if (String(target).endsWith("/chat/completions")) {
+      const lessons = Array.from({ length: 1_505 }, (_, index) => ({ topic: `System ${index}`, tags: ["systems"], lesson: `Distinct durable game-system lesson number ${index} explains a useful production and gameplay practice.` }));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ relevant: true, lessons }) } }] }), { status: 200 });
+    }
+    return new Response(`<title>Systems</title><p>${"Game systems should have clear inputs and outputs. ".repeat(10)}</p>`, { status: 200, headers: { "content-type": "text/html" } });
+  };
+  try {
+    const baseline = knowledgeReport().lessons;
+    const summary = await learnFromLinks(["https://93.184.216.34/systems"], { follow: false, drill: false });
+    assert.equal(summary.lessons, 1_505);
+    assert.equal(knowledgeReport().lessons, baseline + 1_505);
+    const page = listKnowledgePage({ offset: 1_500, limit: 50, query: "game-system lesson number" });
+    assert.equal(page.total, 1_505);
+    assert.equal(page.items.length, 5);
   } finally {
     global.fetch = original;
   }

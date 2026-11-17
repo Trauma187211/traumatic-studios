@@ -91,6 +91,8 @@ async function askForProject(brief, handoff) {
       5
    );
 
+let researchedLessons = "";
+try { researchedLessons = require("./knowledge").relevantKnowledge(`${brief}\n${handoff}`, { limit: 18 }); } catch { /* the local library may be unavailable */ }
 const lessonText = matchedLessons.length > 0
   ? matchedLessons
       .map(
@@ -101,7 +103,7 @@ Rule: ${l.rule || l.description || JSON.stringify(l)}
 `
       )
       .join("\n")
-  : "No specific lessons matched.";
+  : "No local architecture rules matched.";
   const response = await llmFetch({
     body: JSON.stringify({
       model: getModel(),
@@ -113,6 +115,9 @@ Rule: ${l.rule || l.description || JSON.stringify(l)}
 
 MANDATORY STUDIO RULES & LEARNED LESSONS (You MUST strictly follow these rules derived from studio research):
 ${lessonText}
+
+RESEARCHED STUDIO KNOWLEDGE (adapt only applicable techniques; references are not templates):
+${researchedLessons || "No matching research lessons yet."}
 
 UNIVERSAL ARCHITECTURAL & EXECUTION STANDARDS (Enforce on every build):
 1. DYNAMIC SPATIAL & PERSPECTIVE SKELETON: Adapt seamlessly to the requested dimensional and spatial model (2D, 2.5D isometric projection with screen transformation formulas, multi-tiered vertical stacks, or gridless top-down spaces). Ensure precise depth sorting and render layering.
@@ -438,7 +443,23 @@ async function listProjects(projectsDir = PROJECTS_DIR) {
   for (const entry of entries) {
     if (!entry.isDirectory() || !/^game-\d+-[a-f0-9]{8}$/.test(entry.name)) continue;
     const project = JSON.parse(await fs.readFile(path.join(projectsDir, entry.name, "project.json"), "utf8"));
-    projects.push({ ...project, previewUrl: `/games/${project.id}/index.html` });
+    let design = {};
+    try { design = JSON.parse(await fs.readFile(path.join(projectsDir, entry.name, "studio-design.json"), "utf8")); } catch { /* older projects may not have a design record */ }
+    projects.push({
+      ...project,
+      title: design.design?.title || project.title || "Playable game",
+      genre: design.design?.genre || project.genre || "",
+      dimension: design.design?.dimension || project.dimension || "",
+      fallback: Boolean(design.fallback),
+      revision: design.revision || 1,
+      parentId: design.parentId || null,
+      blueprint: design.blueprint?.type || null,
+      knowledgeUsed: Array.isArray(design.knowledgeUsed) ? design.knowledgeUsed : [],
+      feedbackGiven: require("./knowledge").hasPlayerFeedback(entry.name),
+      canContinue: Boolean(design.design),
+      conversation: Array.isArray(design.conversation) ? design.conversation.slice(-18) : [],
+      previewUrl: `/games/${project.id}/index.html`,
+    });
   }
   return projects.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }

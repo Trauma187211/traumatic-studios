@@ -273,7 +273,7 @@ async function runLocalStudio(brief, emit, { projectsDir, memoryFile = getMemory
     "Ship one small playable with a win, a loss and a restart before adding features.",
     "Give every follow-up task a single owner and a checkable outcome.",
   ], memoryFile);
-  emit({ type: "memory-updated", learnings: saved });
+  emit({ type: "memory-updated", total: saved.length });
   emit({ type: "phase-completed", phase: "learning" });
   emit({ type: "studio-completed" });
 }

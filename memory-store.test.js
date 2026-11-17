@@ -11,7 +11,7 @@ async function makeMemoryFile(context) {
   return path.join(directory, "studio-memory.json");
 }
 
-test("keeps only the twelve newest unique reusable lessons", async (context) => {
+test("retains every unique reusable lesson in append-only memory", async (context) => {
   const memoryFile = await makeMemoryFile(context);
 
   for (let start = 0; start < 15; start += 3) {
@@ -23,12 +23,13 @@ test("keeps only the twelve newest unique reusable lessons", async (context) => 
   }
 
   const saved = await readLearnings(memoryFile);
-  assert.equal(saved.length, 12);
-  const expectedNumbers = [12, 13, 14, 9, 10, 11, 6, 7, 8, 3, 4, 5];
+  assert.equal(saved.length, 15);
+  const expectedNumbers = [12, 13, 14, 9, 10, 11, 6, 7, 8, 3, 4, 5, 0, 1, 2];
   assert.deepEqual(
     saved.map(({ lesson }) => lesson),
     expectedNumbers.map((number) => `Reusable studio practice number ${String(number).padStart(2, "0")}.`),
   );
+  assert.ok(await fs.stat(`${memoryFile}.jsonl`));
 });
 
 test("surfaces studio-memory corruption instead of treating it as empty memory", async (context) => {

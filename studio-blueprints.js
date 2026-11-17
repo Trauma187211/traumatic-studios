@@ -951,47 +951,7 @@ const Blueprint = (() => {
     Engine.start({ reset, update, draw });
   }
 
-  // -------------------------------------------------------------------- isometric_2_5d
-
-function isometric_2_5d(raw) {
-
-  throw new Error(
-    "The isometric_2_5d blueprint is not implemented. Route this project through custom generation."
-  );
-
-}
-
-// -------------------------------------------------------------------- fps_3d
-
-function fps_3d(raw) {
-
-  throw new Error(
-    "The fps_3d blueprint is not implemented. Route this project through custom generation."
-  );
-
-}
-
-// -------------------------------------------------------------------- puzzle
-
-function puzzle(raw) {
-
-  throw new Error(
-    "The puzzle blueprint is not implemented. Route this project through custom generation."
-  );
-
-}
-
-// -------------------------------------------------------------------- strategy
-
-function strategy(raw) {
-
-  throw new Error(
-    "The strategy blueprint is not implemented. Route this project through custom generation."
-  );
-
-}
-
-  const builders = { adventure, platformer, arena, isometric_2_5d, fps_3d, puzzle, strategy };
+  const builders = { adventure, platformer, arena };
   
   return { 
     types: Object.keys(builders), 

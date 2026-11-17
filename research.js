@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { isConfigured, getApiKey } = require("./settings");
 const { withNotices } = require("./llm");
-const { askJson, assertPublicUrl, hasStudied, knowledgeOutline, learnFromLinks } = require("./knowledge");
+const { askJson, assertPublicUrl, hasStudied, knowledgeOutline, learnFromLinks, knowledgeReport, rateSource } = require("./knowledge");
 const { trackUrls } = require("./curriculum");
 
 const DAY_MS = 86_400_000;
@@ -10,28 +10,129 @@ const FALLBACK_TOPICS = [
   "game feel and juice", "enemy AI behavior", "procedural level generation", "platformer physics", "top-down adventure design", "roguelike item systems",
   "collision detection algorithms", "game balance and economy", "puzzle level design", "boss fight design", "JavaScript canvas optimization", "GDScript best practices",
   "tilemap techniques", "pathfinding", "particle effects", "game UI design", "sound design for games", "state machines", "save systems", "turn-based combat design",
+  "open world level design and player navigation", "survival crafting economy design", "3D exploration camera and level design",
+  "game studio postmortem production lessons scope and iteration", "RPG quest state and world reactivity", "procedural world generation with authored pacing",
+  "game production vertical slice content pipeline lessons", "game company history design tradeoffs shipped games postmortem",
 ];
 
 const stateFile = () => process.env.STUDIO_RESEARCH_PATH || path.join(__dirname, "data", "research.json");
+const historyFile = () => `${stateFile()}.history.jsonl`;
 const intervalMs = () => Number(process.env.STUDIO_RESEARCH_INTERVAL_MS) || 90_000;
-const dailyCap = () => Number(process.env.STUDIO_RESEARCH_DAILY_PAGES) || 40;
 
 let busy = 0;
 let timer = null;
 let failures = 0;
 let running = false;
 let yieldCheck = null;
+let historyCacheFile = "";
+let historyCacheSignature = "";
+let historyCache = null;
+
+function readHistory() {
+  const file = historyFile();
+  try {
+    const stat = fs.statSync(file);
+    const signature = `${stat.size}:${stat.mtimeMs}`;
+    if (historyCacheFile === file && historyCacheSignature === signature && historyCache) return historyCache;
+    const tried = new Set(), topics = new Set();
+    for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+      if (!line) continue;
+      try {
+        const event = JSON.parse(line);
+        if (event.type === "tried" && event.url) tried.add(event.url);
+        else if (event.type === "untried" && event.url) tried.delete(event.url);
+        else if (event.type === "topic" && event.query) topics.add(event.query);
+      } catch { /* ignore a torn trailing record */ }
+    }
+    historyCacheFile = file;
+    historyCacheSignature = signature;
+    historyCache = { tried: [...tried], topics: [...topics], triedSet: tried, topicSet: topics };
+    return historyCache;
+  } catch { return { tried: [], topics: [], triedSet: new Set(), topicSet: new Set() }; }
+}
+
+function rememberTopic(state, query) {
+  if (state._topicSet.has(query)) return;
+  state._topicSet.add(query);
+  state.topics.push(query);
+  state._newTopics.push(query);
+}
+
+function rememberUrl(state, url) {
+  if (state._triedSet.has(url)) return;
+  state._triedSet.add(url);
+  state.tried.push(url);
+  state._newTried.push(url);
+}
+
+function forgetUrl(state, url) {
+  state._triedSet.delete(url);
+  state.tried = state.tried.filter((item) => item !== url);
+  state._removedTried.push(url);
+  state._newTried = state._newTried.filter((item) => item !== url);
+}
 
 function load() {
-  const base = { enabled: true, queue: [], tried: [], topics: [], day: "", today: 0, pages: 0, lessons: 0, log: [], lastMessage: "Waiting for the first research round.", lastAt: "" };
-  try { return { ...base, ...JSON.parse(fs.readFileSync(stateFile(), "utf8")) }; } catch { return base; }
+  const base = { enabled: true, queue: [], topicQueue: [], tried: [], topics: [], day: "", today: 0, pages: 0, lessons: 0, log: [], lastMessage: "Waiting for the first research round.", lastAt: "" };
+  let persisted = {};
+  try { persisted = JSON.parse(fs.readFileSync(stateFile(), "utf8")); } catch { /* first run */ }
+  const history = readHistory();
+  const tried = [...new Set([...history.tried, ...(persisted.tried || [])])];
+  const topics = [...new Set([...history.topics, ...(persisted.topics || [])])];
+  return {
+    ...base, ...persisted, tried, topics,
+    _triedSet: new Set(tried), _topicSet: new Set(topics),
+    _newTried: (persisted.tried || []).filter((url) => !history.triedSet.has(url)),
+    _newTopics: (persisted.topics || []).filter((query) => !history.topicSet.has(query)),
+    _removedTried: [],
+  };
 }
 
 function save(state) {
   const file = stateFile();
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  const history = readHistory();
+  const journal = historyFile();
+  let triedSet, topicSet;
+  if (!fs.existsSync(journal)) {
+    const initial = [
+      ...state.tried.map((url) => ({ type: "tried", url })),
+      ...state.topics.map((query) => ({ type: "topic", query })),
+    ];
+    fs.writeFileSync(journal, `${initial.map((event) => JSON.stringify(event)).join("\n")}${initial.length ? "\n" : ""}`, { encoding: "utf8", flag: "wx" });
+    triedSet = new Set(state.tried);
+    topicSet = new Set(state.topics);
+    historyCache = { tried: state.tried.slice(), topics: state.topics.slice(), triedSet, topicSet };
+  } else {
+    triedSet = new Set(history.triedSet);
+    topicSet = new Set(history.topicSet);
+    const triedList = history.tried;
+    const topicList = history.topics;
+    const events = [];
+    for (const url of state._newTried || []) if (!triedSet.has(url)) { events.push({ type: "tried", url }); triedSet.add(url); triedList.push(url); }
+    for (const query of state._newTopics || []) if (!topicSet.has(query)) { events.push({ type: "topic", query }); topicSet.add(query); topicList.push(query); }
+    for (const url of state._removedTried || []) if (triedSet.has(url)) {
+      events.push({ type: "untried", url });
+      triedSet.delete(url);
+      const index = triedList.indexOf(url);
+      if (index >= 0) triedList.splice(index, 1);
+    }
+    if (events.length) fs.appendFileSync(journal, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
+    historyCache = { tried: triedList, topics: topicList, triedSet, topicSet };
+  }
+  const historyStat = fs.statSync(journal);
+  historyCacheFile = journal;
+  historyCacheSignature = `${historyStat.size}:${historyStat.mtimeMs}`;
+  const stored = { ...state };
+  delete stored.tried;
+  delete stored.topics;
+  delete stored._newTried;
+  delete stored._newTopics;
+  delete stored._removedTried;
+  delete stored._triedSet;
+  delete stored._topicSet;
   const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(state, null, 1), "utf8");
+  fs.writeFileSync(temp, JSON.stringify(stored, null, 1), "utf8");
   fs.renameSync(temp, file);
 }
 
@@ -66,37 +167,51 @@ async function searchSources(topic) {
 }
 
 async function discover(state) {
+  if (!Array.isArray(state.topicQueue)) state.topicQueue = [];
+  if (state.topicQueue.length) {
+    const topic = state.topicQueue.shift();
+    rememberTopic(state, topic.query);
+    note(state, `Researching "${topic.query}"â€¦`);
+    const known = new Set([...state._triedSet, ...state.queue.map((item) => item.url)]);
+    const candidates = (await searchSources(topic)).filter((item, index, all) => !known.has(item.url) && !hasStudied(item.url) && all.findIndex((other) => other.url === item.url) === index);
+    return queueResearchCandidates(state, topic, candidates);
+  }
   let topics;
   try {
     const result = await askJson(
-      "You are the research director of a game-development studio's knowledge team. Given what the studio already knows, propose 3 specific topics worth researching next that would improve the quality of games it builds (design, game feel, genres, algorithms, engines, coding practice, debugging). Prefer gaps and fundamentals over trivia. Return only JSON: { \"topics\": [ { \"query\": a search phrase, \"tag\": one lowercase word such as gamedev, javascript, godot or gamedesign } ] }.",
+      "You are the research director of a game-development studio's knowledge team. Given what the studio already knows, propose 3 specific topics worth researching next that would improve its original games: design, game feel, any genre, 2D/3D world systems, production, technical craft, and lessons from shipped or failed projects. Deliberately cover gaps rather than repeating the most common tags. Prefer primary documentation, detailed postmortems, conference talks with transcripts, and substantive case studies. Do not propose company trivia, fan wikis, generic AI advice, or unrelated pages. Return only JSON: { \"topics\": [ { \"query\": a search phrase, \"tag\": one lowercase word such as gamedev, javascript, godot or gamedesign } ] }.",
       `Already known tags: ${knowledgeOutline() || "(nothing yet)"}\nRecently researched: ${state.topics.slice(-15).join("; ") || "(none)"}`,
       600,
     );
-    topics = (Array.isArray(result.topics) ? result.topics : []).filter((item) => item && typeof item.query === "string").slice(0, 3);
+    topics = (Array.isArray(result.topics) ? result.topics : []).filter((item) => item && typeof item.query === "string");
   } catch {
     topics = [];
   }
   if (!topics.length) {
-    const next = FALLBACK_TOPICS.find((topic) => !state.topics.includes(topic)) || FALLBACK_TOPICS[state.topics.length % FALLBACK_TOPICS.length];
+    const next = FALLBACK_TOPICS.find((topic) => !state._topicSet.has(topic)) || FALLBACK_TOPICS[state.topics.length % FALLBACK_TOPICS.length];
     topics = [{ query: next, tag: "gamedev" }];
   }
-  const topic = topics[0];
-  state.topics = [...state.topics, topic.query].slice(-100);
+  const topic = topics.find((item) => !state._topicSet.has(item.query)) || topics[0];
+  state.topicQueue.push(...topics.filter((item) => item.query !== topic.query && !state._topicSet.has(item.query)));
+  rememberTopic(state, topic.query);
   note(state, `Researching "${topic.query}"…`);
-  const known = new Set([...state.tried, ...state.queue.map((item) => item.url)]);
-  const candidates = (await searchSources(topic)).filter((item, index, all) => !known.has(item.url) && !hasStudied(item.url) && all.findIndex((other) => other.url === item.url) === index).slice(0, 24);
+  const known = new Set([...state._triedSet, ...state.queue.map((item) => item.url)]);
+  const candidates = (await searchSources(topic)).filter((item, index, all) => !known.has(item.url) && !hasStudied(item.url) && all.findIndex((other) => other.url === item.url) === index);
+  return queueResearchCandidates(state, topic, candidates);
+}
+
+async function queueResearchCandidates(state, topic, candidates) {
   if (!candidates.length) return 0;
   let picked = [];
   try {
     const result = await askJson(
-      "You choose which web pages are worth reading to learn correct, concrete game-development or programming technique. Prefer documentation, tutorials, postmortems with technical detail and well-established references. Skip news, opinion, job posts, product announcements, videos and anything not teaching technique. Return only JSON: { \"pick\": [indices] } with at most 4 indices, best first.",
+      "You choose every web page worth reading to learn correct, concrete game-development or programming technique. Prefer documentation, tutorials, postmortems with technical detail and well-established references. Skip news, opinion, job posts, product announcements, videos and anything not teaching technique. Return only JSON: { \"pick\": [indices] }.",
       `Topic: ${topic.query}\n\n${candidates.map((item, index) => `${index}: ${item.title} -> ${item.url}`).join("\n")}`,
       500,
     );
-    picked = (Array.isArray(result.pick) ? result.pick : []).map(Number).filter((index) => Number.isInteger(index) && index >= 0 && index < candidates.length).slice(0, 4);
+    picked = (Array.isArray(result.pick) ? result.pick : []).map(Number).filter((index) => Number.isInteger(index) && index >= 0 && index < candidates.length);
   } catch {
-    picked = candidates.filter((item) => /wikipedia|docs\.|developer\.mozilla|gamedev|redblobgames|gameprogrammingpatterns/i.test(item.url)).slice(0, 3).map((item) => candidates.indexOf(item));
+    picked = candidates.filter((item) => /wikipedia|docs\.|developer\.mozilla|gamedev|redblobgames|gameprogrammingpatterns/i.test(item.url)).map((item) => candidates.indexOf(item));
   }
   for (const index of picked) state.queue.push(candidates[index]);
   note(state, picked.length ? `Found ${picked.length} promising source${picked.length === 1 ? "" : "s"} on "${topic.query}".` : `Nothing worth reading found for "${topic.query}".`);
@@ -111,27 +226,27 @@ async function step() {
   if (!isConfigured()) return "no-ai";
   const today = new Date().toISOString().slice(0, 10);
   if (state.day !== today) { state.day = today; state.today = 0; }
-  if (state.today >= dailyCap()) return "cap";
 
-  const tried = new Set(state.tried);
+  const tried = state._triedSet;
   let url = trackUrls().find((candidate) => !tried.has(candidate) && !hasStudied(candidate));
   if (!url) {
     if (!state.queue.length) { await discover(state); save(state); }
     url = state.queue.shift()?.url;
     if (!url) { save(state); return "empty"; }
   }
-  state.tried = [...state.tried, url].slice(-3000);
+  rememberUrl(state, url);
   save(state);
   if (busy > 0) return "busy";
 
-  note(state, `Studying ${url}`);
+  const source = rateSource(url);
+  note(state, `Studying ${url} · ${source.tier} (${Math.round(source.score * 100)}% source score)`);
   const summary = await withNotices(
     (message) => { note(state, message); },
     () => learnFromLinks([url], { follow: false, skipKnown: true, drill: Boolean(getApiKey()), emit: (event) => { if (event.type === "learn-log") note(state, event.message); } }),
   );
   const transient = !summary.pages && /model request failed|could not reach|timed out|fetch failed/i.test(summary.skipped[0] || "");
   if (transient) {
-    state.tried = state.tried.filter((item) => item !== url);
+    forgetUrl(state, url);
     if (!trackUrls().includes(url)) state.queue.unshift({ url });
     note(state, "The AI provider is busy or unreachable right now. Will retry this page later.");
     save(state);
@@ -159,7 +274,6 @@ async function run() {
   try {
     const result = await step();
     if (result === "studied" || result === "skipped") failures = 0;
-    else if (result === "cap") delay = 30 * 60_000;
     else if (result === "empty") delay = Math.max(delay, 10 * 60_000);
     else delay = Math.min(delay, 60_000);
   } catch (error) {
@@ -188,7 +302,13 @@ function stop() {
 
 function status() {
   const state = load();
-  return { enabled: state.enabled, busy: busy > 0, today: state.today, dailyCap: dailyCap(), pages: state.pages, lessons: state.lessons, queued: state.queue.length, lastMessage: state.lastMessage, lastAt: state.lastAt, log: state.log.slice(-12), curriculumLeft: trackUrls().filter((url) => !state.tried.includes(url) && !hasStudied(url)).length };
+  const tried = new Set(state.tried);
+  return { enabled: state.enabled, busy: busy > 0, today: state.today, pages: state.pages, lessons: state.lessons, queued: state.queue.length, lastMessage: state.lastMessage, lastAt: state.lastAt, log: state.log.slice(-12), curriculumLeft: trackUrls().filter((url) => !tried.has(url) && !hasStudied(url)).length, knowledge: knowledgeReport() };
+}
+
+function historySnapshot() {
+  const history = readHistory();
+  return { tried: history.tried.slice(), topics: history.topics.slice() };
 }
 
 function setEnabled(enabled) {
@@ -199,4 +319,4 @@ function setEnabled(enabled) {
   return status();
 }
 
-module.exports = { discover, markBusy, markIdle, setEnabled, start, status, step, stop };
+module.exports = { discover, historySnapshot, markBusy, markIdle, setEnabled, start, status, step, stop };
