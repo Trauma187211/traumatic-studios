@@ -951,27 +951,45 @@ const Blueprint = (() => {
     Engine.start({ reset, update, draw });
   }
 
-  // -------------------------------------------------------------------- isometric_2_5d (Phase 2 Expanded Template)
-  function isometric_2_5d(raw) {
-    // Reuses the robust adventure/exploration framework styled with simulated 2.5D isometric depth
-    return adventure({ ...raw, title: raw.title || "Isometric Exploration" });
-  }
+  // -------------------------------------------------------------------- isometric_2_5d
 
-  // -------------------------------------------------------------------- fps_3d (Phase 2 Expanded Template)
-  function fps_3d(raw) {
-    // Reuses arena/shooter framework tailored for first-person / 3D spatial dynamics
-    return arena({ ...raw, title: raw.title || "3D Tactical Zone" });
-  }
+function isometric_2_5d(raw) {
 
-  // -------------------------------------------------------------------- puzzle
-  function puzzle(raw) {
-    return adventure({ ...raw, title: raw.title || "Logic Grid" });
-  }
+  throw new Error(
+    "The isometric_2_5d blueprint is not implemented. Route this project through custom generation."
+  );
 
-  // -------------------------------------------------------------------- strategy
-  function strategy(raw) {
-    return arena({ ...raw, title: raw.title || "Tactical Command" });
-  }
+}
+
+// -------------------------------------------------------------------- fps_3d
+
+function fps_3d(raw) {
+
+  throw new Error(
+    "The fps_3d blueprint is not implemented. Route this project through custom generation."
+  );
+
+}
+
+// -------------------------------------------------------------------- puzzle
+
+function puzzle(raw) {
+
+  throw new Error(
+    "The puzzle blueprint is not implemented. Route this project through custom generation."
+  );
+
+}
+
+// -------------------------------------------------------------------- strategy
+
+function strategy(raw) {
+
+  throw new Error(
+    "The strategy blueprint is not implemented. Route this project through custom generation."
+  );
+
+}
 
   const builders = { adventure, platformer, arena, isometric_2_5d, fps_3d, puzzle, strategy };
   
@@ -980,8 +998,10 @@ const Blueprint = (() => {
     get debug() { return debug; }, 
     run(spec) { 
       const typeKey = spec && String(spec.type || "").toLowerCase();
-      // Flexible lookup: direct match, partial match, or graceful fallback to adventure
-      const build = builders[typeKey] || builders[typeKey.split('_')[0]] || builders.adventure; 
+      if (!typeKey || !builders[typeKey]) {
+        throw new Error(`Unknown blueprint type: ${spec && spec.type}`);
+      }
+      const build = builders[typeKey]; 
       return build(spec || {}); 
     } 
   };

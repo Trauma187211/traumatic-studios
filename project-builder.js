@@ -28,16 +28,31 @@ function getRelevantLessons(briefText, maxLessons = 10) {
     const scored = lessons.map((lesson) => {
       let score = 0;
       const keywords = lesson.keywords || [];
-      for (const keyword of keywords) {
-        const kwLower = keyword.toLowerCase();
-        if (textLower.includes(kwLower)) {
-          score += 3;
-        }
-      }
+for (const keyword of keywords) {
 
-      if (lesson.category && textLower.includes(lesson.category.toLowerCase())) {
-        score += 2;
-      }
+  const kwLower =
+      keyword.toLowerCase();
+
+  if (textLower.includes(kwLower)) {
+
+      score +=
+          kwLower.length > 8
+              ? 6
+              : 4;
+  }
+
+}
+
+      if (
+   lesson.category &&
+   textLower.includes(
+      lesson.category.toLowerCase()
+   )
+) {
+
+   score += 5;
+
+}
 
       const ruleText = (lesson.rule || lesson.description || "").toLowerCase();
       for (const token of briefTokens) {
@@ -51,10 +66,16 @@ function getRelevantLessons(briefText, maxLessons = 10) {
 
     scored.sort((a, b) => b.score - a.score);
     
-    const selected = scored.filter((s) => s.score > 0).slice(0, maxLessons);
+   const selected =
+   scored
+      .filter((s) => s.score >= 4)
+      .slice(0, 5);
     if (selected.length === 0) {
-      return lessons.slice(0, maxLessons).map((l) => l.lesson);
-    }
+
+  return [];
+
+}
+
 
     return selected.map((s) => s.lesson);
   } catch (error) {
@@ -64,11 +85,23 @@ function getRelevantLessons(briefText, maxLessons = 10) {
 }
 
 async function askForProject(brief, handoff) {
-  const matchedLessons = getRelevantLessons(brief, 10);
-  const lessonText = matchedLessons.length > 0
-    ? matchedLessons.map((l, i) => `[Rule ${i + 1} (${l.category || "General"}): ${l.rule || l.description || JSON.stringify(l)}]`).join("\n")
-    : "No specific lessons matched.";
+ const matchedLessons =
+   getRelevantLessons(
+      brief,
+      5
+   );
 
+const lessonText = matchedLessons.length > 0
+  ? matchedLessons
+      .map(
+        (l, i) => `
+[Priority ${i + 1}]
+Category: ${l.category || "General"}
+Rule: ${l.rule || l.description || JSON.stringify(l)}
+`
+      )
+      .join("\n")
+  : "No specific lessons matched.";
   const response = await llmFetch({
     body: JSON.stringify({
       model: getModel(),
@@ -76,19 +109,20 @@ async function askForProject(brief, handoff) {
       messages: [
         {
           role: "system",
-          content: `You are the lead gameplay engineer at Traumatic Studios. Build a custom, fully playable browser prototype on an HTML5 Canvas based on the user's precise project brief, architecture specs, and stylistic parameters.
+          content: `You are the lead systems architect and principal gameplay engineer at Traumatic Studios. Synthesize and build a custom, highly scalable, fully interactive browser application or simulation based on the user's precise project brief, architecture specs, and stylistic parameters.
 
 MANDATORY STUDIO RULES & LEARNED LESSONS (You MUST strictly follow these rules derived from studio research):
 ${lessonText}
 
-HIGH-FIDELITY EXECUTION STANDARDS (Enforce on every build):
-1. ADAPTIVE PERSPECTIVE & GEOMETRY: Fully embrace the perspective, layout, and genre requested in the brief (whether 2.5D isometric, vertical-stack, side-scroller, or top-down grid). If an isometric or 2.5D perspective is requested, implement proper projection formulas (e.g., projecting screen coordinates as \`screenX = (x - y) * tileWidth\`, \`screenY = (x + y) * tileHeight / 2\`) with dynamic Y-sorting for depth layering.
-2. RICH PROCEDURAL ART & VECTOR DETAILS: Because external assets are banned, completely avoid lazy placeholder grey boxes or single-rectangle player tokens. Programmatically draw rich, multi-layered vector graphics using canvas paths, custom fills, gradients, shadows (\`shadowBlur\`, \`shadowColor\`), and procedural particle effects for environments, characters, and VFX.
-3. ATMOSPHERIC UI & HUD: Render fully styled HUDs directly onto the canvas with custom fonts, gradient health/stamina meters, and polished borders rather than minimalist floating debug text.
+UNIVERSAL ARCHITECTURAL & EXECUTION STANDARDS (Enforce on every build):
+1. DYNAMIC SPATIAL & PERSPECTIVE SKELETON: Adapt seamlessly to the requested dimensional and spatial model (2D, 2.5D isometric projection with screen transformation formulas, multi-tiered vertical stacks, or gridless top-down spaces). Ensure precise depth sorting and render layering.
+2. HIGH-PERFORMANCE DATA & STATE INTEGRITY: Decouple state updates from render loops using delta-time (\`dt\`). Implement spatial partitioning or object pooling where density demands it, and maintain strict finite state machine (FSM) integrity for interactive entities.
+3. ROBUST CORE MECHANICS & PROCEDURAL SYSTEMS: Implement robust event-driven game loops, responsive hit/input handling, procedural world generation or asset-free vector graphics where required, and atmospheric audio/visual feedback.
+4. ATMOSPHERIC PRESENTATION & POLISHED HUD: Never rely on minimalist floating text labels. Render polished canvas HUDs, gradient meters, and styled typographic layouts that match the target thematic tone.
 
 CRITICAL INSTRUCTIONS:
-1. Unlimited Creative Scope & Zero Bias: Fully adapt to whatever perspective, dimension model (2D, 2.5D, 3D orthographic, vertical-stack, gridless, multi-tiered), thematic tone, or unique gameplay loop the user requests without arbitrary layout restrictions.
-2. Historical Knowledge & Memory Synthesis: Deeply cross-reference all prior studio patterns, past project lessons, iterative learnings, and accumulated structural insights to produce an advanced, highly polished, and functionally complete implementation that perfectly matches the user's prompt.
+1. Unlimited Creative Scope & Zero Bias: Fully adapt to whatever perspective, domain, architectural paradigm, thematic tone, or complex interactive loop the user requests without arbitrary layout restrictions.
+2. Historical Knowledge & Memory Synthesis: Deeply cross-reference all prior studio patterns, past project lessons, iterative learnings, and accumulated structural insights to produce an advanced, highly polished, and functionally complete implementation.
 3. Code Structure: Return only a JSON object with string fields indexHtml, gameJs, gameCss and a tasks array of 3 to 5 objects with title, owner and description.
 4. Owners must be exactly: Game designer, Gameplay engineer, QA tester, or Producer.
 5. Constraints: Put all JavaScript in gameJs and all CSS in gameCss; indexHtml must load them as local ./game.js and ./game.css files, with no inline scripts or styles. No external assets, network requests, imports, or third-party libraries.

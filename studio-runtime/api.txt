@@ -1,0 +1,38 @@
+## COMMON
+Write ONE module per answer as plain JavaScript statements that register it:
+  Game.module("Name", { init: function (g) {}, update: function (g, dt) {}, draw: function (g, ctx) {} });
+Never declare or assign Game or Kit; they already exist. No imports, no network, no external files, no images: draw everything with shapes.
+g is the shared game object. g.w and g.h are the canvas size. g.data is a plain object shared by every module and reset on each start: keep your state in g.data.<yourModuleNameInLowerCase> and read other modules' state from g.data.<theirName> (guard with || {} when unsure).
+init runs at start and restart. update runs only while playing (dt in seconds). draw runs every frame; draw the world in module order (earlier modules are behind later ones).
+g.score is a number you may change. g.hud is an array of text lines the runtime draws top-left: push strings in update, and never draw your own text in the top-left corner (anything drawn there is moved into g.hud anyway). g.say("text", seconds) shows a short banner.
+Only show on-screen prompts such as "Press Space" for features that you wrote working code for in a module. Do not add puzzles or other mechanics that the brief did not ask for.
+g.end(true) wins, g.end(false) loses. g.rand() is a random number from 0 to 1. g.time is seconds played.
+Input: g.axis() returns {x,y} from WASD/arrows (up is y=-1). g.down("Space") is held, g.pressed("KeyE") is true on the frame of the key press, g.action() is true when Space/Enter/E/Z/click was pressed this frame. g.mouse has x, y, dx, dy (drag distance this frame), down, clicked.
+Kit helpers: Kit.clamp(v,a,b) Kit.lerp(a,b,t) Kit.dist(x1,y1,x2,y2) Kit.overlap(a,b) for {x,y,w,h} rectangles, Kit.circleHit(a,b) for {x,y,r} circles, Kit.rng(seed), Kit.text(ctx,str,x,y,{size,color,align}), Kit.bar(ctx,x,y,w,h,fraction,color), Kit.sky(ctx,w,h,topColor,bottomColor), Kit.shade(hex,factor), Kit.sfx("hit"|"pickup"|"jump"|"shoot"|"click"|"win"|"lose").
+The player's position is published as g.player = { x, y } (2D, and grid cells in 2.5D) or { x, y, z } in 3D (y is up). The building blocks below do this for you; if you move the player yourself, set g.player every update.
+Every game must be winnable and losable: call g.end(true) when the goal is done and g.end(false) when the player fails (caught, health at zero, or time up). Something must chase, hurt or pressure the player.
+Use the tested building blocks instead of writing movement, pickup and chase logic yourself; a module that only calls them is correct and short.
+Kit.aStar(grid, from, to) finds a path on a 2D array grid[y][x] where a truthy cell is a wall; from and to are {x,y} cells; it returns an array of {x,y} cells to walk through (empty when blocked). Kit.lineOfSight(grid, x0, y0, x1, y1) is true when no wall lies between two cells.
+Do not invent Kit functions: the complete list is given separately. Keep the module under 90 lines.
+
+## 2D
+Draw with the 2D canvas context directly: ctx.fillStyle, ctx.fillRect, ctx.beginPath(), ctx.arc, ctx.fill(), ctx.stroke(), ctx.fillText.
+Player: keep p = { x, y, r } in g.data and call Kit.mover.update(g, dt, p, { speed: 190, bounds: { minX: 12, maxX: g.w - 12, minZ: 12, maxZ: g.h - 12 } }); it moves p with g.axis() and publishes g.player. Z bounds the y axis.
+Collectibles: items are {x, y, r}; var left = Kit.pickups.collect(g, items, { radius: 18, value: 10 }) marks touched items collected=true and visible=false (skip those when drawing), adds to g.score, plays a sound, shows a banner and returns how many are left.
+Enemies: Kit.chaser.update(g, dt, enemy, { speed: 70, sight: 400, touch: 24 }) moves enemy {x, y} toward g.player when it is within sight and wanders otherwise; it returns "caught" when within touch.
+
+## 2.5D
+Kit.iso.toScreen(gx, gy, z) gives {x, y} on screen for a grid cell and a height in pixels. Kit.iso.ox and Kit.iso.oy move the whole map on screen (set them once in init). Kit.iso.tw and th are the tile width and height (default 64 and 32).
+Kit.iso.block(ctx, gx, gy, z, heightPx, color) draws one tile or block. Draw cells in order of increasing gx+gy, and objects standing on a cell right after that cell, so nearer things cover farther ones.
+Positions are grid cells. Player: p = { x, y } in g.data; Kit.mover.update(g, dt, p, { iso: true, speed: 2.2, bounds: { minX: 0.3, maxX: 7.7, minZ: 0.3, maxZ: 7.7 }, blocked: function (x, y) { return false; } }) moves with the screen axes and publishes g.player.
+Collectibles {x, y}: Kit.pickups.collect(g, items, { radius: 0.6, value: 25 }). Enemies {x, y}: Kit.chaser.update(g, dt, enemy, { speed: 1.2, sight: 6, touch: 0.5, bounds: { minX: 0.3, maxX: 7.7, minZ: 0.3, maxZ: 7.7 } }) returns "caught".
+
+## 3D
+Software 3D with a shared scene that the runtime draws for you. World axes: x right, y up, z toward the viewer; a camera with yaw 0 looks toward -z.
+g.scene = { cam, meshes } exists in init. Push meshes into g.scene.meshes; the runtime draws the sky, fog and every mesh before your draw functions run, so do NOT call Kit.render3d yourself. Draw only 2D overlays in draw.
+Meshes: Kit.mesh.box(w,h,d,color), Kit.mesh.plane(w,d,colorA,colorB,tiles) (a flat checkered floor), Kit.mesh.pyramid(w,h,d,color), Kit.mesh.sphere(radius,color,segments). Each mesh has pos [x,y,z], rot [rx,ry,rz] in radians, scale [sx,sy,sz], visible. Colors are "#rrggbb" strings. Keep meshes under about 300 in total.
+Mark walls and pillars with mesh.solid = true so the player and enemies cannot walk through them. g.world = { bounds: { minX: -19, maxX: 19, minZ: -19, maxZ: 19 } } (set in init) sets the walkable area; the default is 25 units each way.
+Player: Kit.fp.update(g, dt, { speed: 5 }) does WASD, arrow-key turning and mouse look with collision, moves g.scene.cam, and publishes g.player. Start position: g.scene.cam.pos = [x, 1.6, z] in init.
+Pickups: keep meshes in an array (collected meshes glow and spin automatically; set mesh.glow = "#rrggbb" to make any other mesh glow); var left = Kit.pickups.collect(g, array, { radius: 1.1, value: 25 }) hides touched meshes, adds to g.score, plays a sound and returns how many are left.
+Enemies: a mesh with pos; Kit.chaser.update(g, dt, mesh, { speed: 2.6, sight: 14, touch: 1 }) wanders, chases g.player inside sight, slides along solid meshes and returns "caught".
+Kit.project3d(g.scene.cam, [x,y,z], g.w, g.h) returns {x, y, depth} or null when behind the camera; use it to draw labels or markers on 3D objects.

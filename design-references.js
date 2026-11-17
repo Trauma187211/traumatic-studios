@@ -1,0 +1,73 @@
+/**
+ * Reference blueprints: inspiration for the designer and engineer, never templates.
+ * Add your own by dropping JSON files into ./references/ (one card or an array of cards per file).
+ * Card: { id, name, dimension: "2d"|"2.5d"|"3d", tags: [words that match briefs], pitch, loop, systems: [], twist, pitfalls }
+ */
+const fs = require("node:fs");
+const path = require("node:path");
+
+const BUILT_IN = [
+  { id: "arena-blaster", gameplay: { goal: { type: "defeat", label: "drones", count: 6 }, threat: { type: "chasers", label: "drone", count: 3, speed: "normal", sight: "long" }, player: { shoots: true, health: 3 } }, name: "Arena blaster", dimension: "2d", tags: ["shooter", "blaster", "arena", "twin-stick", "waves", "survive"], pitch: "Hold a single screen against escalating waves with a fast, readable weapon.", loop: "move + aim, clear a wave, pick one upgrade, face a harder wave, boss every fifth wave", systems: ["wave spawner", "weapon with cooldown", "enemy types that behave differently", "pickups", "boss pattern"], twist: "Let the arena itself change between waves (hazards, closing walls).", pitfalls: "All enemies chasing the player in a straight line; no reason to move." },
+  { id: "side-platformer", gameplay: { view: "side", goal: { type: "collect", label: "coins", count: 8 }, threat: { type: "patrol", label: "walker", count: 3, speed: "slow" }, player: { health: 3, jumps: true } }, name: "Side-scrolling platformer", dimension: "2d", tags: ["platformer", "jump", "side-scroller", "mario", "run"], pitch: "Precise jumping through hand-shaped levels with a single signature move.", loop: "reach the exit through hazards, collect optional items, unlock the next level", systems: ["gravity and coyote-time jumping", "tile-based level data", "patrolling enemies", "checkpoints", "camera follow"], twist: "One ability that changes how the level reads (dash, wall-cling, swap gravity).", pitfalls: "Floaty jumps; levels that are flat corridors." },
+  { id: "dungeon-adventure", gameplay: { goal: { type: "keys", label: "keys", count: 3 }, threat: { type: "patrol", label: "guardian", count: 3, speed: "normal", sight: "short" }, player: { shoots: true, health: 4 } }, name: "Top-down dungeon adventure", dimension: "2d", tags: ["adventure", "dungeon", "zelda", "rpg", "exploration", "key", "boss"], pitch: "Explore connected rooms, find keys and tools, defeat a boss.", loop: "explore, fight, find key or tool, unlock a door, reach the boss", systems: ["room graph that is always solvable", "locked doors and keys", "melee or ranged attack", "enemy variety", "health and pickups"], twist: "A tool that re-opens earlier rooms in a new way.", pitfalls: "Unreachable keys; empty rooms." },
+  { id: "roguelike-grid", gameplay: { goal: { type: "exit", label: "stairs" }, threat: { type: "chasers", label: "monster", count: 3, speed: "slow", sight: "normal" }, player: { health: 4, shoots: true } }, name: "Turn-based roguelike", dimension: "2d", tags: ["roguelike", "turn-based", "grid", "dungeon crawler", "permadeath", "loot"], pitch: "Tactical grid movement where every step matters and each run differs.", loop: "descend floors, trade risk for loot, die, start again slightly wiser", systems: ["procedural floors", "turn order", "items with tradeoffs", "enemy AI by type", "fog of war"], twist: "Items that combine into surprising effects.", pitfalls: "Real-time movement in a turn game; no meaningful choices." },
+  { id: "tower-defense", gameplay: { goal: { type: "survive", seconds: 90 }, threat: { type: "chasers", label: "raider", count: 4, speed: "slow", sight: "long" }, player: { shoots: true, health: 5 } }, name: "Tower defense", dimension: "2d", tags: ["tower defense", "defend", "strategy", "waves", "build"], pitch: "Place and upgrade towers along a path before the next wave arrives.", loop: "build, watch the wave, earn money, upgrade, repeat", systems: ["path or lanes", "tower types with different roles", "economy", "wave definitions", "range preview"], twist: "Enemies that disable or steal from towers.", pitfalls: "One tower type always best." },
+  { id: "shmup", gameplay: { goal: { type: "defeat", label: "fighters", count: 8 }, threat: { type: "chasers", label: "fighter", count: 4, speed: "fast", sight: "long" }, player: { shoots: true, health: 3 } }, name: "Vertical shoot-em-up", dimension: "2d", tags: ["shmup", "shoot-em-up", "bullet", "space", "scrolling shooter"], pitch: "Weave through readable bullet patterns and unleash a charged attack.", loop: "dodge, shoot, collect power-ups, survive the boss pattern", systems: ["bullet patterns", "scrolling background", "power-up levels", "bombs", "stage script"], twist: "Score multiplier that rewards flying close to danger.", pitfalls: "Unfair patterns; tiny readable hitbox missing." },
+  { id: "puzzle-grid", gameplay: { goal: { type: "collect", label: "gems", count: 8 }, threat: { type: "timer", seconds: 120 }, player: { health: 3 } }, name: "Grid puzzle", dimension: "2d", tags: ["puzzle", "sokoban", "match", "logic", "brain"], pitch: "Small deterministic rules that combine into satisfying solutions.", loop: "read the board, test an idea, undo, solve, advance to a harder board", systems: ["rules engine", "undo", "level list with rising difficulty", "move counter", "solved check"], twist: "A new rule introduced every few levels.", pitfalls: "Unsolvable boards; no undo." },
+  { id: "survival-gather", gameplay: { goal: { type: "survive", seconds: 120 }, threat: { type: "chasers", label: "creature", count: 2, speed: "normal", sight: "normal" }, player: { shoots: true, health: 4 } }, name: "Survival and crafting", dimension: "2d", tags: ["survival", "craft", "gather", "base", "night", "resource"], pitch: "Gather, craft and fortify before the night gets dangerous.", loop: "gather by day, craft, defend by night, expand", systems: ["day-night clock", "resource nodes", "recipes", "hunger or warmth meter", "night enemies"], twist: "A resource that is only available when it is dangerous.", pitfalls: "Grind with no goal." },
+  { id: "stealth-top-down", gameplay: { goal: { type: "exit", label: "exit" }, threat: { type: "patrol", label: "guard", count: 3, speed: "normal", sight: "short" }, player: { health: 1 } }, name: "Top-down stealth", dimension: "2d", tags: ["stealth", "sneak", "heist", "guard", "thief", "spy"], pitch: "Slip past guards with vision cones and noise.", loop: "scout patrols, pick a route, grab the objective, escape", systems: ["vision cones", "patrol routes", "noise", "alert state", "objective and exit"], twist: "Tools that bend the rules (decoys, shadows).", pitfalls: "Guards that see through walls." },
+  { id: "pseudo-racer", gameplay: { goal: { type: "collect", label: "checkpoints", count: 8 }, threat: { type: "timer", seconds: 75 }, player: { health: 3 } }, name: "Racer", dimension: "2.5d", tags: ["racing", "race", "drift", "car", "kart", "speed"], pitch: "Feel of speed on a curving road with a clean drifting model.", loop: "race laps, beat rivals, unlock the next track", systems: ["track as a list of curves", "steering with speed and grip", "rival cars", "lap and position tracking", "boost"], twist: "Shortcuts that cost grip.", pitfalls: "Steering with no weight." },
+  { id: "iso-action-rpg", gameplay: { goal: { type: "defeat", label: "monsters", count: 6 }, threat: { type: "chasers", label: "monster", count: 3, speed: "normal", sight: "normal" }, player: { shoots: true, health: 5 } }, name: "Isometric action RPG", dimension: "2.5d", tags: ["isometric", "action rpg", "diablo", "loot", "quest", "hack and slash"], pitch: "Fight through isometric zones, gather loot, grow stronger.", loop: "fight, loot, level up, unlock a stronger zone", systems: ["isometric tile map with height", "melee and skill attacks", "enemy packs", "loot with stats", "depth sorting"], twist: "Loot that changes how a skill works.", pitfalls: "Depth sorting mistakes; sponge enemies." },
+  { id: "iso-builder", gameplay: { goal: { type: "collect", label: "crystals", count: 10 }, threat: { type: "timer", seconds: 150 }, player: { health: 3 } }, name: "Isometric builder or farm", dimension: "2.5d", tags: ["builder", "farm", "city", "management", "tycoon", "sim", "garden"], pitch: "Place things on an isometric grid and watch a small economy grow.", loop: "place, wait, harvest or earn, expand, respond to events", systems: ["grid placement", "timers", "money and costs", "unlockable items", "events"], twist: "Neighbouring tiles affect each other.", pitfalls: "Nothing to decide after the first minute." },
+  { id: "fps-explorer", gameplay: { goal: { type: "keys", label: "sigils", count: 3 }, threat: { type: "patrol", label: "watcher", count: 2, speed: "normal", sight: "normal" }, player: { health: 3 } }, name: "First-person explorer", dimension: "3d", tags: ["first-person", "fps", "maze", "explore", "horror", "walking", "labyrinth"], pitch: "Move through a 3D space with limited sight and a clear goal.", loop: "explore, find objectives, avoid or defeat threats, reach the exit", systems: ["camera movement and turning", "collision with walls", "pickups", "threat that patrols or chases", "fog and lighting"], twist: "Information is the resource: sound or light shows where things are.", pitfalls: "Getting lost with no landmarks; clipping through walls." },
+  { id: "third-person-collector", gameplay: { goal: { type: "collect", label: "stars", count: 10 }, threat: { type: "patrol", label: "critter", count: 3, speed: "slow", sight: "short" }, player: { health: 3, jumps: true } }, name: "3D collector or platformer", dimension: "3d", tags: ["3d platformer", "collect", "third-person", "adventure", "jump", "obstacle course"], pitch: "A character moves across 3D platforms to gather objects.", loop: "jump between platforms, collect everything, reach the goal", systems: ["follow camera", "gravity and jumping on boxes", "moving platforms", "collectibles", "fall reset"], twist: "Platforms that react to the player.", pitfalls: "Camera that hides the landing." },
+  { id: "space-flight", gameplay: { goal: { type: "defeat", label: "raiders", count: 8 }, threat: { type: "chasers", label: "raider", count: 4, speed: "fast", sight: "long" }, player: { shoots: true, health: 4 } }, name: "Space flight", dimension: "3d", tags: ["space", "flight", "starfighter", "dogfight", "ship", "asteroid"], pitch: "Pilot a ship through a field of targets and hazards.", loop: "fly, aim, destroy or dodge, survive until the objective is done", systems: ["six-direction movement or banking", "targets and asteroids as meshes", "lock-on markers via projection", "shield and damage", "waves"], twist: "Momentum matters: stopping costs time.", pitfalls: "No sense of speed or direction." },
+  { id: "rhythm-lanes", gameplay: { goal: { type: "collect", label: "notes", count: 12 }, threat: { type: "timer", seconds: 90 }, player: { health: 3 } }, name: "Rhythm lanes", dimension: "2d", tags: ["rhythm", "music", "beat", "dance", "timing"], pitch: "Hit notes in time with a procedural beat.", loop: "play a track, build a combo, finish with a grade", systems: ["note scheduler", "timing windows", "combo and score", "procedural beeps", "results screen"], twist: "The track changes rules mid-song.", pitfalls: "Timing tied to frame rate instead of the clock." },
+  { id: "physics-toy", gameplay: { goal: { type: "exit", label: "goal" }, threat: { type: "hazards", count: 3 }, player: { health: 3 } }, name: "Physics sandbox", dimension: "2d", tags: ["physics", "sandbox", "toy", "build", "destroy", "launch", "angry"], pitch: "Simple physics with a goal that rewards clever setups.", loop: "set up, launch or release, watch, adjust, clear the goal", systems: ["gravity and bounce", "launch control", "destructible blocks", "goal check", "limited attempts"], twist: "Objects with different materials.", pitfalls: "Unstable stacking; no way to retry quickly." },
+];
+
+function validCard(c) {
+  return c && typeof c === "object" && typeof c.id === "string" && typeof c.name === "string" && ["2d", "2.5d", "3d"].includes(c.dimension) && typeof c.pitch === "string";
+}
+
+function loadReferences(dir = path.join(__dirname, "references")) {
+  const cards = [...BUILT_IN];
+  try {
+    for (const file of fs.readdirSync(dir)) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const parsed = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+        for (const card of Array.isArray(parsed) ? parsed : [parsed]) {
+          if (!validCard(card)) continue;
+          const index = cards.findIndex((existing) => existing.id === card.id);
+          const clean = { tags: [], systems: [], ...card };
+          if (index >= 0) cards[index] = clean; else cards.push(clean);
+        }
+      } catch { /* a bad file never blocks a build */ }
+    }
+  } catch { /* no references folder is fine */ }
+  return cards;
+}
+
+/** Scores cards against the brief, adds randomness so ties vary, and mixes dimensions when the brief doesn't force one. */
+function pickReferences(text, { count = 3, rng = Math.random, cards = loadReferences(), dimension = null } = {}) {
+  const lower = String(text || "").toLowerCase();
+  const scored = cards.map((card) => {
+    let score = rng() * 1.5;
+    for (const tag of card.tags || []) if (lower.includes(String(tag).toLowerCase())) score += 3;
+    if (dimension && card.dimension === dimension) score += 2;
+    return { card, score };
+  }).sort((a, b) => b.score - a.score);
+  const picked = scored.slice(0, count).map((s) => s.card);
+  if (!dimension && picked.length >= 3 && picked.every((c) => c.dimension === picked[0].dimension)) {
+    const other = scored.find((s) => s.card.dimension !== picked[0].dimension);
+    if (other && other.score >= 3) picked[picked.length - 1] = other.card;
+  }
+  return picked;
+}
+
+function formatReferences(list) {
+  return list.map((c) => `- ${c.name} (${c.dimension}): ${c.pitch} Loop: ${c.loop || "n/a"}. Systems: ${(c.systems || []).join("; ") || "n/a"}.${c.gameplay ? ` Gameplay menu fit: goal ${c.gameplay.goal.type}, threat ${c.gameplay.threat.type}.` : ""}${c.twist ? ` Twist idea: ${c.twist}` : ""}${c.pitfalls ? ` Avoid: ${c.pitfalls}` : ""}`).join("\n");
+}
+
+module.exports = { loadReferences, pickReferences, formatReferences, BUILT_IN };

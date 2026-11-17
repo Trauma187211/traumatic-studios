@@ -7,8 +7,18 @@ const path = require("node:path");
 const { runStudio } = require("./studio");
 const { readLearnings } = require("./memory-store");
 
+const MODULE_CODE = 'Game.module("Player", { init: function (g) { g.data.player = { x: 50, y: 50 }; }, update: function (g, dt) { g.data.player.x += g.axis().x * 80 * dt; g.player = { x: g.data.player.x, y: 50 }; g.hud.push("Time " + Math.floor(g.time)); if (g.time > 5) g.end(true); if (g.data.player.x < -1000) g.end(false); }, draw: function (g, ctx) { ctx.fillStyle = "#fff"; ctx.fillRect(g.data.player.x, g.data.player.y, 12, 12); ctx.fillRect(0, 0, 8, 8); ctx.fillRect(20, 0, 8, 8); } });';
+
 function prototypeResponse() {
   return {
+    title: "Moon Garden",
+    genre: "garden sim",
+    dimension: "2d",
+    gameplay: { mode: "custom" },
+    modules: [
+      { name: "Garden", responsibility: "the moon garden world" },
+      { name: "Gardener", responsibility: "player movement and goal" },
+    ],
     indexHtml: '<!doctype html><html><head><link rel="stylesheet" href="./game.css"></head><body><button id="play">Play</button><script src="./game.js"></script></body></html>',
     gameJs: 'document.querySelector("#play").addEventListener("click", () => { document.body.dataset.played = "true"; });',
     gameCss: "body { background: #080c11; color: white; }",
@@ -38,7 +48,9 @@ test("runs the shared kickoff, parallel specialists, QA review, and producer han
     const body = JSON.parse(options.body);
     const prompt = body.messages[1].content;
     calls.push(prompt);
-    const content = body.response_format
+    const content = prompt.includes("Write the module named")
+      ? MODULE_CODE.replace('"Player"', prompt.includes('named "Garden"') ? '"Garden"' : '"Gardener"')
+      : body.response_format
       ? JSON.stringify(prototypeResponse())
       : prompt.includes("Extract only lessons")
         ? JSON.stringify({ learnings: ["Keep the first playable milestone small and testable."] })
@@ -53,7 +65,7 @@ test("runs the shared kickoff, parallel specialists, QA review, and producer han
   const events = [];
   await runStudio("A tiny game about a moon garden.", (event) => events.push(event), { memoryFile, projectsDir });
 
-  assert.equal(calls.length, 11);
+  assert.equal(calls.length, 10, "5 agent calls, 1 design, 2 modules, 1 build review, 1 learnings");
   assert.match(calls[1], /Producer's shared kickoff:\nReply 1/);
   assert.match(calls[2], /Producer's shared kickoff:\nReply 1/);
   assert.ok(calls[3].includes("Game designer's proposal:\nReply"));
@@ -101,7 +113,9 @@ test("carries specialist disagreements through QA into the playable handoff", as
     const prompt = body.messages[1].content;
     prompts.push(prompt);
 
-    const content = body.response_format
+    const content = prompt.includes("Write the module named")
+      ? MODULE_CODE.replace('"Player"', prompt.includes('named "Garden"') ? '"Garden"' : '"Gardener"')
+      : body.response_format
       ? JSON.stringify(prototypeResponse())
       : prompt.includes("Extract only lessons")
         ? JSON.stringify({ learnings: ["Resolve control disagreements before implementation."] })
@@ -172,7 +186,9 @@ test("shares saved studio learning with agents on the next sprint", async (conte
     const body = JSON.parse(options.body);
     const prompt = body.messages[1].content;
     prompts.push(prompt);
-    const content = body.response_format
+    const content = prompt.includes("Write the module named")
+      ? MODULE_CODE.replace('"Player"', prompt.includes('named "Garden"') ? '"Garden"' : '"Gardener"')
+      : body.response_format
       ? JSON.stringify(prototypeResponse())
       : prompt.includes("Extract only lessons")
         ? JSON.stringify({ learnings: ["Write acceptance criteria before implementing new gameplay systems."] })

@@ -2,31 +2,178 @@
   {
     "id": "lesson-412",
     "category": "Core Gameplay Loop",
-    "keywords": ["stamina", "movement", "exhaustion", "pawn"],
+    "keywords": [
+      "stamina",
+      "movement",
+      "exhaustion",
+      "pawn"
+    ],
     "rule": "Always decouple stamina drain from frame rates by multiplying delta time into the depletion formula."
   },
   {
     "id": "lesson-589",
     "category": "AI Logic",
-    "keywords": ["perception", "visibility", "traces"],
+    "keywords": [
+      "perception",
+      "visibility",
+      "traces"
+    ],
     "rule": "Never run line-of-sight visibility traces on every tick for off-screen entities; use an interval throttled timer."
   },
   {
     "id": "lesson-601",
     "category": "Rendering Architecture",
-    "keywords": ["2.5d", "perspective", "fable", "action-rpg", "depth", "isometric", "parallax"],
+    "keywords": [
+      "2.5d",
+      "perspective",
+      "fable",
+      "action-rpg",
+      "depth",
+      "isometric",
+      "parallax"
+    ],
     "rule": "Never generate flat, boring top-down tile grids or simple single-room box layouts. For 2.5D or perspective games, mandate dynamic pseudo-3D perspective projection, multi-layered background parallax, Y-sorting for depth layering, and visually distinct environmental geometry."
   },
   {
     "id": "lesson-602",
     "category": "Gameplay Implementation",
-    "keywords": ["action-rpg", "combat", "fable", "melee", "attacks"],
+    "keywords": [
+      "action-rpg",
+      "combat",
+      "fable",
+      "melee",
+      "attacks"
+    ],
     "rule": "Every action-RPG or combat-focused prototype must feature responsive hitbox detection, particle or screen-space feedback on impact, enemy health bars, and an active combat loop rather than static placeholder boxes."
   },
   {
     "id": "lesson-603",
     "category": "UI & Presentation",
-    "keywords": ["ui", "hud", "canvas", "gameplay", "screens"],
+    "keywords": [
+      "ui",
+      "hud",
+      "canvas",
+      "gameplay",
+      "screens"
+    ],
     "rule": "Never rely on minimalist floating text labels as a substitute for a polished HUD. Canvas prototypes must render atmospheric borders, stylized health/stamina meters, and clear, styled typography matching the game's setting."
+  },
+  {
+    "id": "lesson-604",
+    "category": "Rendering Architecture",
+    "keywords": [
+      "isometric",
+      "2.5d",
+      "projection",
+      "coordinates",
+      "tile"
+    ],
+    "rule": "Mandate proper isometric projection formulas (screenX = (x - y) * (tileWidth / 2) + centerX, screenY = (x + y) * (tileHeight / 2) + centerY) for all 2.5D spatial positioning."
+  },
+  {
+    "id": "lesson-605",
+    "category": "Rendering Architecture",
+    "keywords": [
+      "y-sorting",
+      "depth",
+      "layering",
+      "sorting",
+      "entities"
+    ],
+    "rule": "Never draw entities in a static order. All environmental structures, actors, and items must be pushed into a unified render array and sorted by their calculated screen vertical position (item.y) before drawing."
+  },
+  {
+    "id": "lesson-606",
+    "category": "Core Gameplay Loop",
+    "keywords": [
+      "input",
+      "buffering",
+      "responsiveness",
+      "combat"
+    ],
+    "rule": "Implement an input buffer queue for combat actions to prevent dropped key presses during attack animations and state transitions."
+  },
+  {
+    "id": "lesson-607",
+    "category": "Performance Optimization",
+    "keywords": [
+      "particles",
+      "pooling",
+      "garbage",
+      "memory"
+    ],
+    "rule": "Never instantiate dynamic particle or projectile objects inside the render/update tick loop; utilize a pre-allocated object pool to eliminate garbage collection stutters."
+  },
+  {
+    "id": "lesson-608",
+    "category": "State Management",
+    "keywords": [
+      "state",
+      "machine",
+      "transitions",
+      "integrity"
+    ],
+    "rule": "Enforce explicit finite state machine (FSM) rules for actors and enemies to cleanly handle interruption states (stun, dodge, death) without input deadlocks."
+  },
+  {
+    "id": "lesson-701",
+    "category": "Procedural World Generation",
+    "keywords": [
+      "procedural",
+      "generation",
+      "dungeon",
+      "cellular",
+      "automata",
+      "world"
+    ],
+    "rule": "When generating procedural environments or rooms, utilize seeded cellular automata or BSP tree partitioning rather than random noise to guarantee traversable corridors and connected layouts."
+  },
+  {
+    "id": "lesson-702",
+    "category": "Performance Optimization",
+    "keywords": [
+      "spatial",
+      "partitioning",
+      "grid",
+      "collision",
+      "optimization"
+    ],
+    "rule": "For entity-dense simulations, implement a spatial hash grid or quadtree structure for collision queries to avoid costly $O(N^2)$ pairwise checks during the update loop."
+  },
+  {
+    "id": "lesson-703",
+    "category": "Audio Architecture",
+    "keywords": [
+      "audio",
+      "sound",
+      "web",
+      "synth",
+      "procedural"
+    ],
+    "rule": "Programmatically synthesize sound effects and ambient feedback utilizing the Web Audio API (oscillators, gain nodes, custom envelope ramps) to maintain self-contained, asset-free execution."
+  },
+  {
+    "id": "lesson-704",
+    "category": "Network & State Architecture",
+    "keywords": [
+      "multiplayer",
+      "deterministic",
+      "lockstep",
+      "sync",
+      "networking"
+    ],
+    "rule": "For multiplayer or simulated co-op systems, separate deterministic game logic state updates entirely from rendering presentation layers to support future lockstep synchronization."
+  },
+  {
+    "id": "lesson-705",
+    "category": "Autonomous Agent Logic",
+    "keywords": [
+      "behavior",
+      "tree",
+      "steering",
+      "agent",
+      "flocking"
+    ],
+    "rule": "Use modular steering behaviors (seek, flee, arrive, separation) and weighted behavior trees for non-player characters to produce organic, non-linear group movement."
   }
 ]

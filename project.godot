@@ -1,0 +1,5 @@
+[application]
+
+config/name="MyEngineProject"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")

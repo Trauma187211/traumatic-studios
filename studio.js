@@ -9,6 +9,9 @@ const { relevantKnowledge } = require("./knowledge");
 const { markBusy, markIdle } = require("./research");
 const path = require("node:path");
 
+const PROJECT_ID = /^game-\d+-[a-f0-9]{8}$/;
+const usableProject = (project) => PROJECT_ID.test(String(project && project.id));
+
 const agents = {
   producer: {
     name: "Producer",
@@ -121,6 +124,10 @@ async function runSprint(brief, emit, { memoryFile = getMemoryFile(), projectsDi
     emit({ type: "phase-started", phase: "build", message: `Godot found (${path.basename(path.dirname(godot))}); building a real Godot project.` });
     try {
       project = await createGodotGame(brief, handoff, { ...buildOptions, godot });
+      if (!usableProject(project)) {
+        project = undefined;
+        emit({ type: "phase-started", phase: "build", message: "The Godot generator returned an unusable project; trying the browser engine." });
+      }
     } catch (error) {
       emit({ type: "phase-started", phase: "build", message: `Godot build failed (${error.message.slice(0, 140)}); trying the browser engine.` });
     }
@@ -128,6 +135,7 @@ async function runSprint(brief, emit, { memoryFile = getMemoryFile(), projectsDi
   if (!project) {
     try {
       project = await createGame(brief, handoff, buildOptions);
+      if (!usableProject(project)) throw new Error(`the generator returned an unusable project id (${JSON.stringify(project && project.id)})`);
     } catch (error) {
       emit({ type: "phase-started", phase: "build", message: `Full build pipeline failed (${error.message.slice(0, 120)}); falling back to a compact prototype.` });
       const protoOptions = projectsDir ? { projectsDir } : undefined;
@@ -148,6 +156,9 @@ async function runSprint(brief, emit, { memoryFile = getMemoryFile(), projectsDi
   });
   emit({ type: "project-created", project });
 
+  if (!usableProject(project)) {
+    throw new Error(`The build returned an unusable project id (${JSON.stringify(project && project.id)}). Project keys: ${Object.keys(project || {}).join(", ") || "none"}.`);
+  }
   const projectSources = await readProjectSources(project.id, projectsDir);
   const clip = (text, limit) => (text.length > limit ? `${text.slice(0, limit)}\n/* …truncated for review… */` : text);
   let implementationReview = "The AI review was skipped to save calls on the rate-limited free provider. Play-test the build manually.";

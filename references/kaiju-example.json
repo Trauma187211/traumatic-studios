@@ -1,0 +1,12 @@
+{
+  "id": "monster-stomper",
+  "name": "Monster stomper (example card)",
+  "dimension": "3d",
+  "tags": ["kaiju", "monster", "giant", "stomp", "city", "destruction"],
+  "pitch": "Play something huge in a small city and make destruction feel weighty.",
+  "loop": "stomp, smash buildings for points, avoid or defeat the army, survive the clock",
+  "systems": ["buildings as boxes that collapse", "slow heavy movement with a camera that follows", "a few enemy vehicles", "a rage or power meter", "time limit"],
+  "gameplay": { "goal": { "type": "defeat", "label": "tanks", "count": 5 }, "threat": { "type": "chasers", "label": "tank", "count": 3, "speed": "normal", "sight": "long" }, "player": { "shoots": true, "health": 5 } },
+  "twist": "Every building you break changes the map and opens new lines of attack.",
+  "pitfalls": "Movement that feels light; nothing to fear."
+}
